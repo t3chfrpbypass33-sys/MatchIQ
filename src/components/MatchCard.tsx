@@ -4,15 +4,18 @@
  */
 
 import React from 'react';
-import { MapPin, Trophy, ChevronRight, Play } from 'lucide-react';
+import { MapPin, Trophy, ChevronRight, Play, Heart } from 'lucide-react';
 import { Match } from '../types';
+import TeamLogo from './TeamLogo';
 
 interface MatchCardProps {
   match: Match;
   onSelect: (matchId: string) => void;
+  isFavorite: boolean;
+  onToggleFavorite: (matchId: string, event: React.MouseEvent) => void;
 }
 
-export default function MatchCard({ match, onSelect }: MatchCardProps) {
+export default function MatchCard({ match, onSelect, isFavorite, onToggleFavorite }: MatchCardProps) {
   const { id, homeTeam, awayTeam, date, time, stadium, status, score, minute, group } = match;
 
   // Formatting date for reader (e.g. Saturday, June 20)
@@ -56,9 +59,27 @@ export default function MatchCard({ match, onSelect }: MatchCardProps) {
           )}
         </div>
         
-        <span className="text-xs font-semibold text-slate-400 group-hover:text-slate-300 capitalize">
-          {formattedDate}
-        </span>
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-semibold text-slate-400 group-hover:text-slate-300 capitalize">
+            {formattedDate}
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(id, e);
+            }}
+            className="p-1 rounded-full hover:bg-slate-800/80 transition-all cursor-pointer text-slate-400 hover:text-rose-500 scale-100 hover:scale-110 active:scale-90"
+            title={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+          >
+            <Heart 
+              className={`h-4.5 w-4.5 transition-all duration-200 ${
+                isFavorite 
+                  ? 'text-rose-500 fill-rose-500 scale-105' 
+                  : 'text-slate-400 hover:text-rose-450'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Main Core Score & Teams Grid */}
@@ -66,11 +87,9 @@ export default function MatchCard({ match, onSelect }: MatchCardProps) {
         
         {/* Home Team */}
         <div className="col-span-4 flex flex-col items-center text-center">
-          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 shadow-inner group-hover:border-slate-700 transition-colors">
-            <span className="text-3xl filter drop-shadow select-none animate-fade-in" role="img" aria-label={homeTeam.name}>
-              {homeTeam.flag}
-            </span>
-            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center">
+          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl group-hover:border-slate-700 transition-colors">
+            <TeamLogo logoUrl={homeTeam.logo} fallbackFlag={homeTeam.flag} name={homeTeam.name} className="h-14 w-14" />
+            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center z-10">
               #{homeTeam.fifaRank}
             </span>
           </div>
@@ -118,11 +137,9 @@ export default function MatchCard({ match, onSelect }: MatchCardProps) {
 
         {/* Away Team */}
         <div className="col-span-4 flex flex-col items-center text-center">
-          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 shadow-inner group-hover:border-slate-700 transition-colors">
-            <span className="text-3xl filter drop-shadow select-none animate-fade-in" role="img" aria-label={awayTeam.name}>
-              {awayTeam.flag}
-            </span>
-            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center">
+          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl group-hover:border-slate-700 transition-colors">
+            <TeamLogo logoUrl={awayTeam.logo} fallbackFlag={awayTeam.flag} name={awayTeam.name} className="h-14 w-14" />
+            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center z-10">
               #{awayTeam.fifaRank}
             </span>
           </div>

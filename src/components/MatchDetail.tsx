@@ -7,25 +7,244 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Activity, Users, AlertCircle, CalendarDays, 
   CloudSun, Info, Newspaper, Compass, ChevronRight, MapPin, 
-  Award, ShieldAlert, Thermometer, Wind, Droplets, Percent, Sparkles, Swords
+  Award, ShieldAlert, Thermometer, Wind, Droplets, Percent, Sparkles, Swords, TrendingUp, Heart
 } from 'lucide-react';
 import { Match, Player } from '../types';
 import { players as allPlayers, matchDetailsData } from '../data';
+import TeamLogo from './TeamLogo';
+import PlayerCard from './PlayerCard';
+import { registerMatchView, getDailyLimitMax, getOrCreateUserId } from '../utils/freemiumTracker';
+
+// Helper to render bold text matches **text**
+function boldMarkup(text: string) {
+  if (!text) return null;
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i} className="font-semibold text-white">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+// Custom Markdown-lite formatter to render formatted paragraphs and items cleanly
+function formatGeminiText(text: string) {
+  if (!text) return null;
+  const blocks = text.split(/\n\n+/);
+  return (
+    <div className="space-y-3.5 text-xs text-slate-300 leading-relaxed font-sans">
+      {blocks.map((block, idx) => {
+        const trimmed = block.trim();
+        if (!trimmed) return null;
+
+        // Header matching
+        if (trimmed.startsWith("###") || trimmed.startsWith("##") || trimmed.startsWith("#")) {
+          const headingText = trimmed.replace(/^[#\s\d\.]+/, "").trim();
+          const partNum = trimmed.match(/\d+/)?.[0] || "";
+          return (
+            <h4 key={idx} className="text-xs font-extrabold text-indigo-400 mt-5 mb-1.5 uppercase tracking-wider flex items-center gap-1.5 border-b border-indigo-950/40 pb-1">
+              {partNum && <span className="bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded text-[10px]">{partNum}</span>}
+              <span>{headingText}</span>
+            </h4>
+          );
+        }
+
+        // List item matching
+        if (trimmed.includes("\n- ") || trimmed.includes("\n* ") || trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          const lines = trimmed.split(/\n/);
+          return (
+            <ul key={idx} className="list-disc pl-5 space-y-2 text-slate-355 my-2">
+              {lines.map((line, lidx) => {
+                const item = line.replace(/^[\s-*]+\s*/, "");
+                return <li key={lidx} className="leading-relaxed">{boldMarkup(item)}</li>;
+              })}
+            </ul>
+          );
+        }
+
+        // Paragraph matching
+        return (
+          <p key={idx} className="text-slate-300 leading-relaxed font-sans antialiased whitespace-pre-line text-[11px]">
+            {boldMarkup(trimmed)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+// Extract Part 4 of the formatted report to prevent cluttering the predictions block
+function extractScenarioPart(text: string): string {
+  if (!text) return "";
+  // Looks for section 4.
+  const parts = text.split(/(?:###|\*\*|##)?\s*4\.\s*/i);
+  if (parts.length > 1) {
+    return "### 4. " + parts[1];
+  }
+  return text;
+}
+
+// Client-side fallback Poisson prediction algorithm matching backend output
+function getPoissonFallbacks(homeTeamName: string, awayTeamName: string, pPct: any) {
+  const database: { [key: string]: { scored: number; conceded: number } } = {
+    france: { scored: 2.2, conceded: 0.8 },
+    "brésil": { scored: 2.4, conceded: 0.6 },
+    brazil: { scored: 2.4, conceded: 0.6 },
+    argentine: { scored: 2.0, conceded: 0.7 },
+    argentina: { scored: 2.0, conceded: 0.7 },
+    allemagne: { scored: 2.1, conceded: 1.1 },
+    germany: { scored: 2.1, conceded: 1.1 },
+    espagne: { scored: 2.5, conceded: 0.9 },
+    spain: { scored: 2.5, conceded: 0.9 },
+    angleterre: { scored: 1.8, conceded: 0.7 },
+    england: { scored: 1.8, conceded: 0.7 },
+    portugal: { scored: 2.3, conceded: 1.0 },
+    "états-unis": { scored: 1.5, conceded: 1.2 },
+    usa: { scored: 1.5, conceded: 1.2 },
+    mexique: { scored: 1.4, conceded: 1.1 },
+    mexico: { scored: 1.4, conceded: 1.1 },
+    canada: { scored: 1.2, conceded: 1.55 }
+  };
+
+  const getAver = (name: string) => {
+    const tn = name.toLowerCase().trim();
+    for (const [key, val] of Object.entries(database)) {
+      if (tn === key || tn.includes(key) || key.includes(tn)) {
+        return val;
+      }
+    }
+    return { scored: 1.6, conceded: 1.2 };
+  };
+
+  const homeStats = getAver(homeTeamName);
+  const awayStats = getAver(awayTeamName);
+
+  let lambdaHome = (homeStats.scored + awayStats.conceded) / 2;
+  let lambdaAway = (awayStats.scored + homeStats.conceded) / 2;
+
+  if (lambdaHome < 0.5) lambdaHome = 0.5;
+  if (lambdaAway < 0.5) lambdaAway = 0.5;
+
+  if (pPct) {
+    const h = pPct.homeWinPct ?? 40;
+    const a = pPct.awayWinPct ?? 30;
+    const ratio = h / (a || 1);
+    if (ratio > 1.1) {
+      const multiplier = Math.min(1.5, 1.0 + (ratio - 1.1) * 0.3);
+      lambdaHome *= multiplier;
+      lambdaAway /= multiplier;
+    } else if (ratio < 0.9) {
+      const multiplier = Math.min(1.5, 1.0 + (0.9 - ratio) * 0.3);
+      lambdaAway *= multiplier;
+      lambdaHome /= multiplier;
+    }
+  }
+
+  const poissonProb = (k: number, lambda: number) => {
+    let factorial = 1;
+    for (let i = 2; i <= k; i++) factorial *= i;
+    return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial;
+  };
+
+  const scoresList: any[] = [];
+  let totalComputedProb = 0;
+
+  for (let h = 0; h <= 4; h++) {
+    for (let a = 0; a <= 4; a++) {
+      const probHome = poissonProb(h, lambdaHome);
+      const probAway = poissonProb(a, lambdaAway);
+      const jointProb = probHome * probAway;
+      scoresList.push({ score: `${h}-${a}`, prob: jointProb, homeGoals: h, awayGoals: a });
+      totalComputedProb += jointProb;
+    }
+  }
+
+  const normalized = scoresList.map(item => {
+    const norm = totalComputedProb > 0 ? (item.prob / totalComputedProb) * 100 : 0;
+    return { score: item.score, percentage: parseFloat(norm.toFixed(1)), homeGoals: item.homeGoals, awayGoals: item.awayGoals };
+  });
+
+  normalized.sort((x, y) => y.percentage - x.percentage);
+  return {
+    lambdaHome: parseFloat(lambdaHome.toFixed(2)),
+    lambdaAway: parseFloat(lambdaAway.toFixed(2)),
+    homeStats,
+    awayStats,
+    topScores: normalized.slice(0, 5)
+  };
+}
 
 interface MatchDetailProps {
   match: Match;
   onBack: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: (matchId: string) => void;
 }
 
-export default function MatchDetail({ match, onBack }: MatchDetailProps) {
+export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorite }: MatchDetailProps) {
   const { id, homeTeam, awayTeam, date, time, stadium, status, score, group, minute } = match;
 
   const [apiData, setApiData] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState<boolean>(true);
+  const [geminiAnalysis, setGeminiAnalysis] = useState<string>('');
+  const [loadingAnalysis, setLoadingAnalysis] = useState<boolean>(true);
+  const [analysisError, setAnalysisError] = useState<string>('');
+
+  const [viewedCount, setViewedCount] = useState<number>(0);
+  const [limitExceeded, setLimitExceeded] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (id) {
+      const { count } = registerMatchView(id);
+      setViewedCount(count);
+      setLimitExceeded(count > getDailyLimitMax());
+    }
+  }, [id]);
+
+  // Effect to record view prediction in users' historical logs once loaded successfully
+  useEffect(() => {
+    if (geminiAnalysis && homeTeam && awayTeam) {
+      // Safely estimate from prediction percents
+      const predObj = apiData?.prediction || matchDetailsData[id]?.prediction || { homeWinPct: 45, drawPct: 30, awayWinPct: 25 };
+      const h = predObj.homeWinPct;
+      const d = predObj.drawPct;
+      const a = predObj.awayWinPct;
+      
+      let winner = "Match nul";
+      if (h > d && h > a) winner = homeTeam.name;
+      else if (a > d && a > h) winner = awayTeam.name;
+
+      let estScore = "2-1";
+      if (winner === "Match nul") {
+        estScore = "1-1";
+      } else if (winner === awayTeam.name) {
+        estScore = "1-2";
+      }
+
+      const userId = getOrCreateUserId();
+      fetch('/api/history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId,
+          matchId: id,
+          homeTeam: homeTeam.name,
+          awayTeam: awayTeam.name,
+          homeFlag: homeTeam.flag,
+          awayFlag: awayTeam.flag,
+          winner,
+          score: estScore
+        })
+      }).catch(err => console.error("Failed to record view history entry:", err));
+    }
+  }, [geminiAnalysis, id, homeTeam, awayTeam, apiData]);
 
   useEffect(() => {
     async function loadStats() {
       try {
+        setLoadingStats(true);
         const res = await fetch(`/api/match-data/${id}`);
         if (res.ok) {
           const detail = await res.json();
@@ -37,7 +256,28 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
         setLoadingStats(false);
       }
     }
+
+    async function loadGeminiAnalysis() {
+      try {
+        setLoadingAnalysis(true);
+        setAnalysisError('');
+        const res = await fetch(`/api/gemini-analysis/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setGeminiAnalysis(data.analysis || '');
+        } else {
+          setAnalysisError("Impossible de charger l'analyse IA de Gemini.");
+        }
+      } catch (err) {
+        console.error("Failed to fetch Gemini Analysis:", err);
+        setAnalysisError("Erreur réseau lors du chargement de l'analyse.");
+      } finally {
+        setLoadingAnalysis(false);
+      }
+    }
+
     loadStats();
+    loadGeminiAnalysis();
   }, [id]);
 
   // Retrieve optional match details or supply premium defaults
@@ -60,6 +300,7 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
   const h2hData = apiData?.h2h || detailPlaceholder.h2h;
   const weatherData = apiData?.weather || detailPlaceholder.weather;
   const predictionData = apiData?.prediction || detailPlaceholder.prediction;
+  const poissonData = apiData?.probScores || getPoissonFallbacks(homeTeam.name, awayTeam.name, predictionData);
 
   // Filter players for local lists
   const homePlayers = allPlayers.filter(p => p.teamId === homeTeam.id);
@@ -103,7 +344,8 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
     { id: 'meteo', title: 'Météo du stade', icon: CloudSun },
     { id: 'stade', title: 'Infos stade', icon: Compass },
     { id: 'analyse', title: 'Analyse Tactique', icon: Newspaper },
-    { id: 'prediction', title: 'Prédiction IA', icon: Percent }
+    { id: 'prediction', title: 'Prédiction IA', icon: Percent },
+    { id: 'odds', title: 'Cotes Bookmakers', icon: TrendingUp }
   ];
 
   return (
@@ -118,6 +360,48 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
         <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
         <span>Retour aux matchs</span>
       </button>
+
+      {/* Freemium Counter and Warning Banner Row */}
+      <div className="mb-6 flex flex-col gap-3">
+        {/* Banner if limit exceeded */}
+        {limitExceeded && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold leading-none">Limite gratuite quotidienne atteinte</p>
+                <p className="text-[11px] text-slate-300 mt-1 leading-normal">
+                  Vous avez atteint votre limite gratuite de 2 analyses par jour — passez Pro pour un accès illimité.
+                </p>
+              </div>
+            </div>
+            <a
+              href="#pricing"
+              className="shrink-0 inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase px-3.5 py-2 rounded-xl transition-all shadow-md active:scale-[0.98] text-center justify-center cursor-pointer"
+            >
+              <Sparkles className="h-4.5 w-4.5" />
+              <span>Passer Pro</span>
+            </a>
+          </div>
+        )}
+
+        {/* Counter Badge */}
+        <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-[#0c1122]/70 px-4 py-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${limitExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${limitExceeded ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+            </span>
+            <span className="text-slate-400 font-medium">Session d'analyses de match aujourd'hui :</span>
+          </div>
+          <div className="flex items-center gap-1.5 font-mono text-xs">
+            <span className={`font-bold ${limitExceeded ? 'text-amber-400' : 'text-emerald-400'}`}>{viewedCount}</span>
+            <span className="text-slate-500">/</span>
+            <span className="text-slate-400">2</span>
+            <span className="text-slate-500 text-[10px] uppercase font-bold ml-1">analyses gratuites</span>
+          </div>
+        </div>
+      </div>
 
       {/* Top Premium Sport Scoreboard Banner */}
       <div className="relative mb-8 overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-b from-[#11162d] to-[#0d1020] p-6 sm:p-8 shadow-xl shadow-slate-950/40">
@@ -137,9 +421,26 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-slate-400 font-medium">
-            <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
-            <span className="capitalize">{formattedDate} à {time}</span>
+          <div className="flex items-center gap-4 text-slate-400 font-medium select-none">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
+              <span className="capitalize">{formattedDate} à {time}</span>
+            </div>
+            
+            <button
+              onClick={() => onToggleFavorite(id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-755 hover:bg-slate-850 text-slate-200 hover:text-rose-500 transition-all cursor-pointer text-[11px] font-bold shadow-sm"
+              title={isFavorite ? "Retirer de vos favoris" : "Ajouter à vos favoris"}
+            >
+              <Heart 
+                className={`h-3.8 w-3.8 transition-all duration-200 ${
+                  isFavorite 
+                    ? 'text-rose-500 fill-rose-500 scale-105' 
+                    : 'text-slate-400'
+                }`}
+              />
+              <span>{isFavorite ? "Suivi" : "Suivre"}</span>
+            </button>
           </div>
         </div>
 
@@ -150,11 +451,9 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
             
             {/* Home Side */}
             <div className="flex flex-1 flex-col items-center text-center">
-              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl bg-slate-900 border-2 border-slate-800 shadow-xl shadow-slate-950/25">
-                <span className="text-5xl filter drop-shadow-md" role="img" aria-label={homeTeam.name}>
-                  {homeTeam.flag}
-                </span>
-                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center">
+              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl">
+                <TeamLogo logoUrl={homeTeam.logo} fallbackFlag={homeTeam.flag} name={homeTeam.name} className="h-20 w-20" />
+                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center z-10">
                   #{homeTeam.fifaRank}
                 </span>
               </div>
@@ -204,11 +503,9 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
 
             {/* Away Side */}
             <div className="flex flex-1 flex-col items-center text-center">
-              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl bg-slate-900 border-2 border-slate-800 shadow-xl shadow-slate-950/25">
-                <span className="text-5xl filter drop-shadow-md" role="img" aria-label={awayTeam.name}>
-                  {awayTeam.flag}
-                </span>
-                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center">
+              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl">
+                <TeamLogo logoUrl={awayTeam.logo} fallbackFlag={awayTeam.flag} name={awayTeam.name} className="h-20 w-20" />
+                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center z-10">
                   #{awayTeam.fifaRank}
                 </span>
               </div>
@@ -364,23 +661,18 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
                   <div className="space-y-2">
                     {homeKeyPlayersList.length > 0 ? (
                       homeKeyPlayersList.map((p: any) => (
-                        <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-950/40 border border-slate-900">
-                          <div>
-                            <div className="text-xs font-bold text-slate-200">{p.name}</div>
-                            <div className="text-[10px] text-[10px] text-slate-500">{p.position} {p.jersey_number ? `No ${p.jersey_number}` : ''}</div>
-                          </div>
-                          <div className="text-right text-[10px] font-mono whitespace-nowrap">
-                            {p.goalsSeason !== undefined ? (
-                              <>
-                                <span className="text-emerald-400 font-bold">{p.goalsSeason} B</span>
-                                <span className="text-slate-500 mx-1">•</span>
-                                <span className="text-slate-400">{p.assistsSeason} A</span>
-                              </>
-                            ) : (
-                              <span className="text-purple-400 font-bold">Coef {p.ai_score ?? "8.1"}/10</span>
-                            )}
-                          </div>
-                        </div>
+                        <PlayerCard
+                          key={p.id}
+                          id={p.id}
+                          name={p.name}
+                          position={p.position}
+                          jersey_number={p.jersey_number}
+                          photo={p.photo}
+                          goals={p.goalsSeason}
+                          assists={p.assistsSeason}
+                          ai_score={p.ai_score}
+                          status={p.status}
+                        />
                       ))
                     ) : (
                       <div className="text-xs text-slate-500 italic p-2">Aucun joueur renseigné</div>
@@ -399,23 +691,18 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
                   <div className="space-y-2">
                     {awayKeyPlayersList.length > 0 ? (
                       awayKeyPlayersList.map((p: any) => (
-                        <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-950/40 border border-slate-900">
-                          <div>
-                            <div className="text-xs font-bold text-slate-200">{p.name}</div>
-                            <div className="text-[10px] text-slate-500">{p.position} {p.jersey_number ? `No ${p.jersey_number}` : ''}</div>
-                          </div>
-                          <div className="text-right text-[10px] font-mono whitespace-nowrap">
-                            {p.goalsSeason !== undefined ? (
-                              <>
-                                <span className="text-emerald-400 font-bold">{p.goalsSeason} B</span>
-                                <span className="text-slate-500 mx-1">•</span>
-                                <span className="text-slate-400">{p.assistsSeason} A</span>
-                              </>
-                            ) : (
-                              <span className="text-purple-400 font-bold">Coef {p.ai_score ?? "8.0"}/10</span>
-                            )}
-                          </div>
-                        </div>
+                        <PlayerCard
+                          key={p.id}
+                          id={p.id}
+                          name={p.name}
+                          position={p.position}
+                          jersey_number={p.jersey_number}
+                          photo={p.photo}
+                          goals={p.goalsSeason}
+                          assists={p.assistsSeason}
+                          ai_score={p.ai_score}
+                          status={p.status}
+                        />
                       ))
                     ) : (
                       <div className="text-xs text-slate-500 italic p-2">Aucun joueur renseigné</div>
@@ -460,21 +747,15 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
                   <div className="space-y-1.5 min-h-[50px]">
                     {homeInjuredList.length > 0 ? (
                       homeInjuredList.map((p: any) => (
-                        <div key={p.id || p.name} className="flex items-center justify-between p-2 rounded bg-slate-950/30 border border-slate-900">
-                          <div>
-                            <span className="text-xs text-slate-200 block">{p.name}</span>
-                            {p.reason && (
-                              <span className="text-[9px] text-slate-500 block">{p.reason}</span>
-                            )}
-                          </div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 whitespace-nowrap self-start ${
-                            p.status === 'injured' ? 'bg-rose-950/40 text-rose-400 border border-rose-900/40' :
-                            p.status === 'suspended' ? 'bg-slate-900 text-slate-400 border border-slate-800' :
-                            'bg-amber-950/30 text-amber-500 border border-amber-900/30'
-                          }`}>
-                            {p.status === 'injured' ? 'Blessé' : p.status === 'suspended' ? 'Suspendu' : 'Incertain'}
-                          </span>
-                        </div>
+                        <PlayerCard
+                          key={p.id || p.name}
+                          id={p.id || ""}
+                          name={p.name}
+                          position={p.position || "Inconnu"}
+                          photo={p.photo}
+                          status={p.status}
+                          reason={p.reason}
+                        />
                       ))
                     ) : (
                       <p className="text-[11px] text-slate-500 italic p-2">Aucun joueur absent ou incertain.</p>
@@ -491,21 +772,15 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
                   <div className="space-y-1.5 min-h-[50px]">
                     {awayInjuredList.length > 0 ? (
                       awayInjuredList.map((p: any) => (
-                        <div key={p.id || p.name} className="flex items-center justify-between p-2 rounded bg-slate-950/30 border border-slate-900">
-                          <div>
-                            <span className="text-xs text-slate-200 block">{p.name}</span>
-                            {p.reason && (
-                              <span className="text-[9px] text-slate-500 block">{p.reason}</span>
-                            )}
-                          </div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 whitespace-nowrap self-start ${
-                            p.status === 'injured' ? 'bg-rose-950/40 text-rose-400 border border-rose-900/40' :
-                            p.status === 'suspended' ? 'bg-slate-900 text-slate-400 border border-slate-800' :
-                            'bg-amber-950/30 text-amber-500 border border-amber-900/30'
-                          }`}>
-                            {p.status === 'injured' ? 'Blessé' : p.status === 'suspended' ? 'Suspendu' : 'Incertain'}
-                          </span>
-                        </div>
+                        <PlayerCard
+                          key={p.id || p.name}
+                          id={p.id || ""}
+                          name={p.name}
+                          position={p.position || "Inconnu"}
+                          photo={p.photo}
+                          status={p.status}
+                          reason={p.reason}
+                        />
                       ))
                     ) : (
                       <p className="text-[11px] text-slate-500 italic p-2">Aucun joueur absent ou incertain.</p>
@@ -710,35 +985,51 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
             SECTION 7: ANALYSE TACTIQUE
             ============================================== */}
         {(activeSection === 'all' || activeSection === 'analyse') && (
-          <div id="section-analyse" className="rounded-2xl border border-slate-800 bg-[#0f1426] p-6 shadow-md col-span-1 lg:col-span-1">
+          <div id="section-analyse" className="rounded-2xl border border-slate-800 bg-[#0f1426] p-6 shadow-md col-span-1 lg:col-span-1 border-indigo-900/40">
             <div className="mb-4 flex items-center justify-between border-b border-slate-800/80 pb-3">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
                   <Newspaper className="h-4.5 w-4.5" />
                 </div>
-                <h2 className="font-sans text-base font-bold text-white">7. Analyse Tactique</h2>
+                <h2 className="font-sans text-base font-bold text-white">7. Analyse Tactique IA</h2>
               </div>
               <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-mono text-slate-400">TACTICS FEED</span>
             </div>
 
-            <div className="space-y-4 text-xs">
+            <div className="space-y-4">
               <div className="border border-indigo-900/30 bg-indigo-950/10 p-4 rounded-xl leading-relaxed text-slate-300">
-                <h4 className="font-bold text-indigo-400 mb-1.5">Facteurs Clés Attendus :</h4>
-                <ul className="list-disc pl-4 space-y-2 text-slate-400">
+                <h4 className="font-bold text-indigo-400 mb-1.5 text-xs">Facteurs Clés Attendus :</h4>
+                <ul className="list-disc pl-4 space-y-2 text-slate-400 text-xs">
                   <li>Dispositif défensif contre la transition rapide des ailiers adverses.</li>
                   <li>Maîtrise du milieu de terrain sous pression haute.</li>
                   <li>Optimisation des phases de contre-attaques et des coups de pied arrêtés.</li>
                 </ul>
               </div>
 
-              {/* Styled Placeholder/Box requested empty for now */}
-              <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-6 text-center border-dashed">
-                <Sparkles className="h-8 w-8 text-indigo-400/40 mx-auto mb-2 animate-bounce" />
-                <h5 className="font-sans text-sm font-semibold text-slate-300 mb-1">Rapport Tactique Complet</h5>
-                <p className="text-xs text-slate-500 italic max-w-sm mx-auto">
-                  En attente des compositions officielles des équipes et du coup d&apos;envoi pour publication de l&apos;analyse MatchIQ.
-                </p>
-              </div>
+              {loadingAnalysis ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-10 text-center flex flex-col items-center justify-center space-y-3">
+                  <div className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+                  <span className="text-xs text-slate-400 font-medium">Rédaction de l&apos;analyse premium MatchIQ par l&apos;IA Gemini...</span>
+                </div>
+              ) : analysisError ? (
+                <div className="rounded-xl border border-red-950/35 bg-red-950/15 p-5 text-center text-red-400 border-dashed">
+                  <AlertCircle className="h-6 w-6 text-red-500/90 mx-auto mb-2" />
+                  <h5 className="font-semibold text-xs mb-1">Rapport indisponible</h5>
+                  <p className="text-[10px] text-slate-400 italic max-w-xs mx-auto">{analysisError}</p>
+                </div>
+              ) : geminiAnalysis ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-955/60 p-5 space-y-4 shadow-inner max-h-[500px] overflow-y-auto custom-scrollbar">
+                  {formatGeminiText(geminiAnalysis)}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-6 text-center border-dashed">
+                  <Sparkles className="h-8 w-8 text-indigo-400/40 mx-auto mb-2 animate-bounce" />
+                  <h5 className="font-sans text-sm font-semibold text-slate-300 mb-1">Rapport Tactique Complet</h5>
+                  <p className="text-xs text-slate-500 italic max-w-sm mx-auto">
+                    Aucune analyse tactique disponible pour le moment.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -747,7 +1038,7 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
             SECTION 8: PRÉDICTION IA
             ============================================== */}
         {(activeSection === 'all' || activeSection === 'prediction') && (
-          <div id="section-prediction" className="rounded-2xl border border-slate-800 bg-[#0f1426] p-6 shadow-md col-span-1 lg:col-span-1">
+          <div id="section-prediction" className="rounded-2xl border border-slate-800 bg-[#0f1426] p-6 shadow-md col-span-1 lg:col-span-1 border-purple-900/40">
             <div className="mb-4 flex items-center justify-between border-b border-slate-800/80 pb-3">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400">
@@ -768,23 +1059,23 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
                 </div>
 
                 {/* Styled slider graph probability */}
-                <div className="h-5 w-full rounded-full bg-slate-900 border border-slate-850 overflow-hidden flex font-mono text-[10px] text-slate-950 font-black">
+                <div className="h-5 w-full rounded-full bg-slate-900 border border-slate-850 overflow-hidden flex font-mono text-[10px] text-slate-955 font-black">
                   <div 
-                    className="bg-emerald-500 flex items-center justify-center transition-all duration-300 animate-slide-in"
+                    className="bg-emerald-500 flex items-center justify-center transition-all duration-300"
                     style={{ width: `${predictionData.homeWinPct}%` }}
                     title={`Victoire : ${homeTeam.name}`}
                   >
                     {predictionData.homeWinPct}%
                   </div>
                   <div 
-                    className="bg-amber-500 flex items-center justify-center transition-all duration-300 animate-slide-in"
+                    className="bg-amber-500 flex items-center justify-center transition-all duration-300"
                     style={{ width: `${predictionData.drawPct}%` }}
                     title="Nul"
                   >
                     {predictionData.drawPct}%
                   </div>
                   <div 
-                    className="bg-purple-500 flex items-center justify-center transition-all duration-300 animate-slide-in"
+                    className="bg-purple-500 flex items-center justify-center transition-all duration-300"
                     style={{ width: `${predictionData.awayWinPct}%` }}
                     title={`Victoire : ${awayTeam.name}`}
                   >
@@ -800,25 +1091,215 @@ export default function MatchDetail({ match, onBack }: MatchDetailProps) {
                 </div>
               </div>
 
-              {/* Prediction Insight Box */}
-              <div className="bg-slate-955/60 bg-[#141b3a] p-4 border border-slate-800 rounded-xl">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200 mb-1.5 text-purple-400">
-                  <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
-                  <span>Analyse exclusive MatchIQ :</span>
+              {/* Dynamic Gemini predicted scenario card */}
+              {loadingAnalysis ? (
+                <div className="bg-[#141b3a]/25 p-4 border border-slate-800 rounded-xl space-y-2 animate-pulse">
+                  <div className="h-3 w-1/3 bg-slate-700/80 rounded" />
+                  <div className="h-2 bg-slate-855 rounded w-full" />
+                  <div className="h-2 bg-slate-855 rounded w-5/6" />
                 </div>
-                <p className="text-xs text-slate-350 italic leading-relaxed">
-                  &ldquo;{predictionData.aiKeyInsight}&rdquo;
-                </p>
-              </div>
+              ) : analysisError ? (
+                <div className="bg-rose-950/15 p-4 border border-rose-900/30 rounded-xl text-rose-450 font-medium text-xs text-center">
+                  <span>Impossible de charger le scénario IA prédictif actuellement.</span>
+                </div>
+              ) : geminiAnalysis ? (
+                <div className="bg-[#141b3a]/50 p-4 border border-purple-800/30 rounded-xl space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-purple-400 border-b border-purple-955 pb-1.5 mb-1 bg-gradient-to-r from-purple-500/5 to-transparent">
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-purple-400 animate-pulse" />
+                    <span>Scénario & Score estimé :</span>
+                  </div>
+                  <div className="pt-1.5 overflow-hidden">
+                    {formatGeminiText(extractScenarioPart(geminiAnalysis))}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-[#141b3a] p-4 border border-slate-800 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200 mb-1.5 text-purple-400">
+                    <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
+                    <span>Analyse exclusive MatchIQ :</span>
+                  </div>
+                  <p className="text-xs text-slate-355 italic leading-relaxed">
+                    &ldquo;{predictionData.aiKeyInsight}&rdquo;
+                  </p>
+                </div>
+              )}
 
-              {/* Styled Placeholder/Box requested empty for now */}
-              <div className="rounded-xl border border-slate-800/80 bg-slate-950/30 p-4 text-center">
-                <p className="text-xs text-slate-400 italic">
-                  Nos calculs prédictifs seront mis à jour en temps réel avec les cotes sportives et statistiques de l&apos;événement.
-                </p>
+              {/* Scénarios probables (Distribution de Poisson) */}
+              <div className="space-y-4 rounded-xl border border-slate-800 bg-[#070b18] p-5 shadow-inner">
+                <div className="border-b border-slate-800/80 pb-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="flex items-center gap-1.5 font-sans text-xs font-bold text-slate-100 uppercase tracking-wider">
+                      <Activity className="h-4 w-4 text-emerald-400" />
+                      <span>Scénarios Probables</span>
+                    </h3>
+                    <span className="rounded bg-slate-900 border border-slate-800 px-1.5 py-0.5 text-[9px] font-mono text-slate-400">POISSON DISTRIBUTION</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                    Estimation statistique par distribution de Poisson basée sur l&apos;historique de buts (5 derniers matchs) :
+                    {" "}<strong className="text-slate-300">{homeTeam.name}</strong> ({poissonData.homeStats.scored} marqués, {poissonData.homeStats.conceded} encaissés) vs
+                    {" "}<strong className="text-slate-300">{awayTeam.name}</strong> ({poissonData.awayStats.scored} marqués, {poissonData.awayStats.conceded} encaissés).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  
+                  {/* Lambda metrics expectations */}
+                  <div className="rounded-xl bg-slate-950/60 border border-slate-900 p-3.5 flex flex-col justify-center space-y-2 text-[11px] text-slate-400">
+                    <div className="flex justify-between items-center">
+                      <span className="flex items-center gap-1"><span className="text-xs" role="img" aria-label={homeTeam.name}>{homeTeam.flag}</span> <strong className="text-slate-300 font-medium">{homeTeam.name}</strong> :</span>
+                      <span className="font-mono font-bold text-emerald-400 bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-900/30 text-[11px]">λ = {poissonData.lambdaHome} buts/match</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="flex items-center gap-1"><span className="text-xs" role="img" aria-label={awayTeam.name}>{awayTeam.flag}</span> <strong className="text-slate-300 font-medium">{awayTeam.name}</strong> :</span>
+                      <span className="font-mono font-bold text-purple-400 bg-purple-950/20 px-2 py-0.5 rounded border border-purple-900/30 text-[11px]">λ = {poissonData.lambdaAway} buts/match</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 italic mt-1.5 leading-relaxed border-t border-slate-800/60 pt-2 font-light">
+                      Les paramètres lambda (λ) traduisent le potentiel offensif attendu ajusté à la force défensive adverse pour cette confrontation.
+                    </div>
+                  </div>
+
+                  {/* Top scores list progress-bars */}
+                  <div className="space-y-3">
+                    {/* Calculate max percentage for proportional scaling */}
+                    {(() => {
+                      const maxPercentage = Math.max(...(poissonData.topScores.map((s: any) => s.percentage) as number[]));
+                      return poissonData.topScores.map((item: any, idx: number) => {
+                        let barColor = "bg-amber-500"; // Draw
+                        if (item.homeGoals > item.awayGoals) {
+                          barColor = "bg-emerald-500";
+                        } else if (item.awayGoals > item.homeGoals) {
+                          barColor = "bg-purple-400";
+                        }
+
+                        // Label color for team scores
+                        const isHomeWinner = item.homeGoals > item.awayGoals;
+                        const isAwayWinner = item.awayGoals > item.homeGoals;
+
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs font-sans">
+                              <span className="font-mono font-black text-[#f1f5f9] tracking-wider bg-slate-950 border border-slate-800 shrink-0 px-2.5 py-0.5 rounded text-center text-[11px]">
+                                <span className={isHomeWinner ? "text-emerald-400" : ""}>{item.homeGoals}</span>
+                                <span className="text-slate-500 px-1">-</span>
+                                <span className={isAwayWinner ? "text-purple-400" : ""}>{item.awayGoals}</span>
+                              </span>
+                              
+                              <span className="font-mono font-bold text-slate-300 text-[11px]">
+                                {item.percentage}%
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-950 border border-slate-900 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                                style={{ width: `${(item.percentage / (maxPercentage || 1)) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                </div>
               </div>
 
             </div>
+          </div>
+        )}
+
+        {/* ==============================================
+            SECTION 9: COTES BOOKMAKERS
+            ============================================== */}
+        {(activeSection === 'all' || activeSection === 'odds') && (
+          <div id="section-odds" className="rounded-2xl border border-slate-800 bg-[#0f1426] p-6 shadow-md col-span-1 lg:col-span-1 border-emerald-900/40">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <TrendingUp className="h-4.5 w-4.5" />
+                </div>
+                <h2 className="font-sans text-base font-bold text-white">9. Cotes Bookmakers</h2>
+              </div>
+              <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-mono text-slate-400">ODDS COMPARATOR</span>
+            </div>
+
+            {loadingStats ? (
+              <div className="space-y-4 animate-pulse">
+                <div className="h-4 bg-slate-800 rounded w-1/3" />
+                <div className="h-12 bg-slate-800 rounded-xl" />
+                <div className="h-24 bg-slate-800 rounded-xl" />
+              </div>
+            ) : apiData?.odds && apiData.odds.bookmakers && apiData.odds.bookmakers.length > 0 ? (
+              <div className="space-y-6">
+                
+                {/* Ligne de comparaison IA vs Bookmakers */}
+                <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-4 flex gap-3 text-xs text-emerald-200">
+                  <span className="relative flex h-2 w-2 mt-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <p className="leading-relaxed">
+                    <strong className="text-white block mb-0.5">Analyse d&apos;Écart MatchIQ :</strong>
+                    {apiData.odds.summary.comparisonText}
+                  </p>
+                </div>
+
+                {/* Tableau simple des cotes */}
+                <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/40">
+                  <table className="min-w-full divide-y divide-slate-800/60 text-left text-xs font-medium">
+                    <thead className="bg-[#0b0e1b] text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Bookmaker</th>
+                        <th className="px-3 py-3 font-semibold text-center">{homeTeam.name} (1)</th>
+                        <th className="px-3 py-3 font-semibold text-center">Nul (N)</th>
+                        <th className="px-3 py-3 font-semibold text-center">{awayTeam.name} (2)</th>
+                        <th className="px-4 py-3 font-semibold text-right">Rendement</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/40 text-slate-300 font-sans">
+                      {apiData.odds.bookmakers.map((b: any, index: number) => (
+                        <tr 
+                          key={index}
+                          className="hover:bg-slate-900/30 transition-colors"
+                        >
+                          <td className="px-4 py-3.5 font-bold text-slate-200 flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            {b.bookmaker}
+                          </td>
+                          <td className="px-3 py-3.5 text-center font-mono font-bold text-emerald-400">
+                            {b.homeOdds.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-3.5 text-center font-mono text-slate-400">
+                            {b.drawOdds.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-3.5 text-center font-mono font-bold text-purple-400">
+                            {b.awayOdds.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono text-[10px] text-slate-500">
+                            <span className="rounded bg-slate-900/80 border border-slate-800 px-2 py-0.5 text-slate-400 font-semibold inline-block">
+                              {(b.payout * 100).toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Subtext explicatif sur le tri */}
+                <p className="text-[10px] text-slate-500 italic leading-relaxed text-center">
+                  * Les bookmakers sont triés par taux de retour joueur (rendement) décroissant. Plus le rendement est élevé, plus les cotes globales proposées sont généreuses et avantageuses pour le joueur.
+                </p>
+
+              </div>
+            ) : (
+              <div className="bg-[#141b3a]/30 rounded-xl border border-slate-800 p-8 text-center animate-fade-in">
+                <TrendingUp className="mx-auto h-8 w-8 text-slate-600 mb-2.5 animate-pulse" />
+                <h4 className="font-sans text-sm font-semibold text-slate-300 mb-1">Cotes pas encore disponibles</h4>
+                <p className="text-xs text-slate-450 max-w-xs mx-auto leading-relaxed">
+                  L&apos;API internationale n&apos;a pas encore ouvert les offres de paris pour cet événement de la Coupe du Monde 2026.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

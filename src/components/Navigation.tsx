@@ -4,11 +4,11 @@
  */
 
 import React from 'react';
-import { Trophy, CalendarDays, Zap, Layers } from 'lucide-react';
+import { Trophy, CalendarDays, Zap, Sparkles, History } from 'lucide-react';
 
 interface NavigationProps {
-  activeTab: 'all' | 'today';
-  onChangeTab: (tab: 'all' | 'today') => void;
+  activeTab: 'all' | 'today' | 'standings' | 'pricing' | 'history';
+  onChangeTab: (tab: 'all' | 'today' | 'standings' | 'pricing' | 'history') => void;
   onGoHome: () => void;
 }
 
@@ -37,11 +37,11 @@ export default function Navigation({ activeTab, onChangeTab, onGoHome }: Navigat
         </button>
 
         {/* Navigation Tabs */}
-        <nav className="flex items-center gap-1.5 sm:gap-3">
+        <nav className="flex items-center gap-1.2 sm:gap-3">
           <button
             id="nav-tab-today"
             onClick={() => onChangeTab('today')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
               activeTab === 'today'
                 ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700'
                 : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
@@ -54,7 +54,7 @@ export default function Navigation({ activeTab, onChangeTab, onGoHome }: Navigat
           <button
             id="nav-tab-all"
             onClick={() => onChangeTab('all')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
               activeTab === 'all'
                 ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700'
                 : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
@@ -62,6 +62,45 @@ export default function Navigation({ activeTab, onChangeTab, onGoHome }: Navigat
           >
             <CalendarDays className="h-4 w-4" />
             <span>Tous les matchs</span>
+          </button>
+
+          <button
+            id="nav-tab-standings"
+            onClick={() => onChangeTab('standings')}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
+              activeTab === 'standings'
+                ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700'
+                : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
+            }`}
+          >
+            <Trophy className="h-4 w-4" />
+            <span>Classements</span>
+          </button>
+
+          <button
+            id="nav-tab-pricing"
+            onClick={() => onChangeTab('pricing')}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
+              activeTab === 'pricing'
+                ? 'bg-emerald-950/80 text-emerald-400 shadow-sm border border-emerald-800'
+                : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
+            }`}
+          >
+            <Sparkles className="h-4 w-4 text-emerald-405" />
+            <span>Tarifs</span>
+          </button>
+
+          <button
+            id="nav-tab-history"
+            onClick={() => onChangeTab('history')}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold sm:text-sm tracking-wide transition-all duration-200 cursor-pointer ${
+              activeTab === 'history'
+                ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700'
+                : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
+            }`}
+          >
+            <History className="h-4 w-4" />
+            <span>Historique</span>
           </button>
         </nav>
 

@@ -7,6 +7,7 @@ export interface Team {
   id: string;
   name: string;
   flag: string; // Emoji flags like 🇫🇷, 🇧🇷, 🇺🇸, etc.
+  logo?: string; // High quality logo image URL
   fifaRank: number;
   recentForm: ('W' | 'D' | 'L')[];
   group: string;

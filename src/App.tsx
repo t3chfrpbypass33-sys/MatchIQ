@@ -6,16 +6,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Trophy, Search, Calendar, Landmark, MapPin, Sparkles, 
-  Tv2, SlidersHorizontal, ArrowRight, Star, HeartPulse 
+  Tv2, SlidersHorizontal, ArrowRight, Star, HeartPulse, Heart 
 } from 'lucide-react';
 import Navigation from './components/Navigation';
 import MatchCard from './components/MatchCard';
 import MatchDetail from './components/MatchDetail';
+import Pricing from './components/Pricing';
+import PredictionHistory from './components/PredictionHistory';
+import Standings from './components/Standings';
 import { Match } from './types';
-import { matches as fallbackMatches } from './data';
+import { getOrCreateUserId } from './utils/freemiumTracker';
 
 export default function App() {
-  const [allMatches, setAllMatches] = useState<Match[]>(fallbackMatches);
+  const [allMatches, setAllMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -36,22 +39,75 @@ export default function App() {
   }, []);
 
   // Navigation / Routing state
-  const [activeTab, setActiveTab] = useState<'all' | 'today'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'standings' | 'pricing' | 'history'>('all');
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>([]);
   
   // Search & Filtering state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [groupFilter, setGroupFilter] = useState<string>('all');
 
+  // Load favorites on mount
+  useEffect(() => {
+    async function loadFavorites() {
+      try {
+        const uId = getOrCreateUserId();
+        const res = await fetch(`/api/favorites?userId=${uId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setFavorites(data.favorites || []);
+        }
+      } catch (err) {
+        console.error("Failed to load favorites on mount:", err);
+      }
+    }
+    loadFavorites();
+  }, []);
+
+  const handleToggleFavorite = async (matchId: string) => {
+    try {
+      const uId = getOrCreateUserId();
+      const isFav = favorites.includes(matchId);
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: uId,
+          matchId,
+          isFavorite: !isFav
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFavorites(data.favorites || []);
+      }
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    }
+  };
+
   // Handle browser back button simulation or simple URL hashes
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      if (hash.startsWith('#match-')) {
+      if (hash === '#pricing') {
+        setActiveTab('pricing');
+        setSelectedMatchId(null);
+      } else if (hash === '#standings' || hash === '#classement' || hash === '#classements') {
+        setActiveTab('standings');
+        setSelectedMatchId(null);
+      } else if (hash === '#historique' || hash === '#history') {
+        setActiveTab('history');
+        setSelectedMatchId(null);
+      } else if (hash.startsWith('#match-')) {
         const id = hash.replace('#match-', '');
         setSelectedMatchId(id);
       } else {
         setSelectedMatchId(null);
+        // Clear activeTab pricing, history or standings when we are on home route without hash
+        setActiveTab(prev => (prev === 'pricing' || prev === 'history' || prev === 'standings') ? 'all' : prev);
       }
     };
 
@@ -73,6 +129,7 @@ export default function App() {
   const handleBackToHome = () => {
     window.location.hash = '';
     setSelectedMatchId(null);
+    setActiveTab(prev => (prev === 'pricing' || prev === 'history' || prev === 'standings') ? 'all' : prev);
   };
 
   // Get active selected match
@@ -130,6 +187,7 @@ export default function App() {
 
   // Separate live matches for a high-priority live dashboard widget at the very top of the home page
   const liveMatches = allMatches.filter(m => m.status === 'live');
+  const favoriteMatches = allMatches.filter(m => favorites.includes(m.id));
 
   return (
     <div className="min-h-screen bg-[#060913] font-sans antialiased text-slate-205 pb-16">
@@ -139,15 +197,41 @@ export default function App() {
         activeTab={activeTab} 
         onChangeTab={(tab) => {
           setActiveTab(tab);
-          handleBackToHome();
+          if (tab === 'pricing') {
+            window.location.hash = '#pricing';
+          } else if (tab === 'history') {
+            window.location.hash = '#historique';
+          } else if (tab === 'standings') {
+            window.location.hash = '#classement';
+          } else {
+            window.location.hash = '';
+            setSelectedMatchId(null);
+          }
         }}
         onGoHome={handleBackToHome}
       />
 
       {/* Dynamic Main Body */}
-      {selectedMatch ? (
+      {activeTab === 'pricing' ? (
+        <Pricing onBack={handleBackToHome} />
+      ) : activeTab === 'history' ? (
+        <PredictionHistory 
+          onSelectMatch={handleSelectMatch}
+          onBrowseMatches={() => {
+            setActiveTab('all');
+            window.location.hash = '';
+          }}
+        />
+      ) : activeTab === 'standings' ? (
+        <Standings onBack={handleBackToHome} />
+      ) : selectedMatch ? (
         // Detal Match Page Route View
-        <MatchDetail match={selectedMatch} onBack={handleBackToHome} />
+        <MatchDetail 
+          match={selectedMatch} 
+          onBack={handleBackToHome} 
+          isFavorite={favorites.includes(selectedMatch.id)}
+          onToggleFavorite={handleToggleFavorite}
+        />
       ) : (
         // Home List Page Route View
         <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
@@ -290,7 +374,7 @@ export default function App() {
               </div>
               
               <div className="flex flex-wrap gap-1">
-                {['all', 'Group A', 'Group B', 'Group C', 'Group D', 'Group E', 'Group F'].map((g) => (
+                {['all', 'Group A', 'Group B', 'Group C', 'Group D', 'Group E', 'Group F', 'Group G', 'Group H', 'Group I', 'Group J', 'Group K', 'Group L'].map((g) => (
                   <button
                     key={g}
                     onClick={() => setGroupFilter(g)}
@@ -309,8 +393,41 @@ export default function App() {
           </div>
 
           {/* Grouped Match Lists Rendering */}
-          {sortedDates.length > 0 ? (
+          {allMatches.length === 0 ? (
+            <div className="mt-12 text-center bg-[#0c1122]/40 rounded-3xl border border-slate-800 border-dashed p-10 max-w-lg mx-auto">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 border border-slate-800 text-slate-500 mx-auto mb-4">
+                <Trophy className="h-6 w-6" />
+              </div>
+              <h4 className="text-base font-bold text-white mb-2">Aucun match à venir dans les prochains jours</h4>
+              <p className="text-xs text-slate-400 leading-relaxed max-w-xs mx-auto">
+                Les données de l&apos;API BSD ne rapportent aucun match programmé pour les jours à venir. Veuillez ré-essayer ultérieurement.
+              </p>
+            </div>
+          ) : sortedDates.length > 0 ? (
             <div className="space-y-8">
+              {/* Mes matchs favoris Section */}
+              {favoriteMatches.length > 0 && (
+                <div className="mb-10 bg-slate-950/30 border border-slate-900/80 rounded-3xl p-5.5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4.5 pb-2 border-b border-rose-950/40">
+                    <Heart className="h-4.5 w-4.5 text-rose-500 fill-rose-500 animate-pulse" />
+                    <h3 className="font-sans text-xs font-mono font-bold tracking-wider text-slate-200 uppercase">
+                      Mes Matchs Favoris ({favoriteMatches.length})
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {favoriteMatches.map((match) => (
+                      <MatchCard
+                        key={`fav-${match.id}`}
+                        match={match}
+                        onSelect={handleSelectMatch}
+                        isFavorite={true}
+                        onToggleFavorite={handleToggleFavorite}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {sortedDates.map((dateStr) => {
                 const dateMatches = groupedMatches[dateStr];
                 return (
@@ -335,6 +452,8 @@ export default function App() {
                           key={match.id}
                           match={match}
                           onSelect={handleSelectMatch}
+                          isFavorite={favorites.includes(match.id)}
+                          onToggleFavorite={handleToggleFavorite}
                         />
                       ))}
                     </div>
