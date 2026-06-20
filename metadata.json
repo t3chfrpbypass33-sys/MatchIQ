@@ -1,0 +1,6 @@
+{
+  "name": "MatchIQ",
+  "description": "Plateforme premium d'analyse de matchs de football pour la Coupe du Monde 2026.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
