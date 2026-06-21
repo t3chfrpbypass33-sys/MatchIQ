@@ -6,7 +6,6 @@
 import React from 'react';
 import { MapPin, Trophy, ChevronRight, Play, Heart } from 'lucide-react';
 import { Match } from '../types';
-import TeamLogo from './TeamLogo';
 
 interface MatchCardProps {
   match: Match;
@@ -87,9 +86,20 @@ export default function MatchCard({ match, onSelect, isFavorite, onToggleFavorit
         
         {/* Home Team */}
         <div className="col-span-4 flex flex-col items-center text-center">
-          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl group-hover:border-slate-700 transition-colors">
-            <TeamLogo logoUrl={homeTeam.logo} fallbackFlag={homeTeam.flag} name={homeTeam.name} className="h-14 w-14" />
-            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center z-10">
+          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 shadow-inner group-hover:border-slate-700 transition-colors p-2">
+            {homeTeam.crest ? (
+              <img
+                src={homeTeam.crest}
+                alt={homeTeam.name}
+                referrerPolicy="no-referrer"
+                className="h-[80%] w-[80%] object-contain filter drop-shadow select-none animate-fade-in"
+              />
+            ) : (
+              <span className="text-3xl filter drop-shadow select-none animate-fade-in" role="img" aria-label={homeTeam.name}>
+                {homeTeam.flag}
+              </span>
+            )}
+            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center">
               #{homeTeam.fifaRank}
             </span>
           </div>
@@ -137,9 +147,20 @@ export default function MatchCard({ match, onSelect, isFavorite, onToggleFavorit
 
         {/* Away Team */}
         <div className="col-span-4 flex flex-col items-center text-center">
-          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl group-hover:border-slate-700 transition-colors">
-            <TeamLogo logoUrl={awayTeam.logo} fallbackFlag={awayTeam.flag} name={awayTeam.name} className="h-14 w-14" />
-            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center z-10">
+          <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 shadow-inner group-hover:border-slate-700 transition-colors p-2">
+            {awayTeam.crest ? (
+              <img
+                src={awayTeam.crest}
+                alt={awayTeam.name}
+                referrerPolicy="no-referrer"
+                className="h-[80%] w-[80%] object-contain filter drop-shadow select-none animate-fade-in"
+              />
+            ) : (
+              <span className="text-3xl filter drop-shadow select-none animate-fade-in" role="img" aria-label={awayTeam.name}>
+                {awayTeam.flag}
+              </span>
+            )}
+            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-400 flex items-center justify-center">
               #{awayTeam.fifaRank}
             </span>
           </div>

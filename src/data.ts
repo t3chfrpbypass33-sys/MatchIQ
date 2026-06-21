@@ -12,7 +12,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇫🇷',
     fifaRank: 2,
     recentForm: ['W', 'W', 'D', 'W', 'L'],
-    group: 'Group I',
+    group: 'Group A',
     logoColor: 'from-blue-600 to-indigo-800'
   },
   BRA: {
@@ -30,7 +30,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇦🇷',
     fifaRank: 1,
     recentForm: ['W', 'W', 'W', 'L', 'W'],
-    group: 'Group J',
+    group: 'Group B',
     logoColor: 'from-sky-400 to-blue-600'
   },
   GER: {
@@ -39,7 +39,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇩🇪',
     fifaRank: 11,
     recentForm: ['D', 'W', 'W', 'L', 'W'],
-    group: 'Group E',
+    group: 'Group D',
     logoColor: 'from-neutral-800 to-neutral-600'
   },
   ESP: {
@@ -48,7 +48,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇪🇸',
     fifaRank: 3,
     recentForm: ['W', 'W', 'D', 'W', 'W'],
-    group: 'Group H',
+    group: 'Group E',
     logoColor: 'from-red-600 to-yellow-500'
   },
   ENG: {
@@ -57,7 +57,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
     fifaRank: 4,
     recentForm: ['W', 'L', 'W', 'D', 'W'],
-    group: 'Group L',
+    group: 'Group F',
     logoColor: 'from-slate-200 to-blue-800'
   },
   POR: {
@@ -66,7 +66,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇵🇹',
     fifaRank: 7,
     recentForm: ['W', 'W', 'L', 'W', 'W'],
-    group: 'Group K',
+    group: 'Group D',
     logoColor: 'from-red-700 to-green-700'
   },
   USA: {
@@ -75,7 +75,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇺🇸',
     fifaRank: 16,
     recentForm: ['W', 'D', 'L', 'W', 'D'],
-    group: 'Group D',
+    group: 'Group A',
     logoColor: 'from-blue-800 to-red-650'
   },
   MEX: {
@@ -84,7 +84,7 @@ export const teams: { [key: string]: Team } = {
     flag: '🇲🇽',
     fifaRank: 15,
     recentForm: ['D', 'W', 'L', 'W', 'W'],
-    group: 'Group A',
+    group: 'Group B',
     logoColor: 'from-green-700 to-red-600'
   },
   CAN: {
@@ -93,80 +93,8 @@ export const teams: { [key: string]: Team } = {
     flag: '🇨🇦',
     fifaRank: 38,
     recentForm: ['L', 'W', 'D', 'W', 'L'],
-    group: 'Group B',
-    logoColor: 'from-red-600 to-rose-700'
-  },
-  MAR: {
-    id: 'MAR',
-    name: 'Maroc',
-    flag: '🇲🇦',
-    fifaRank: 13,
-    recentForm: ['W', 'D', 'W', 'L', 'W'],
     group: 'Group C',
-    logoColor: 'from-red-600 to-green-700'
-  },
-  ALG: {
-    id: 'ALG',
-    name: 'Algérie',
-    flag: '🇩🇿',
-    fifaRank: 43,
-    recentForm: ['D', 'W', 'W', 'D', 'W'],
-    group: 'Group J',
-    logoColor: 'from-green-600 to-white'
-  },
-  URU: {
-    id: 'URU',
-    name: 'Uruguay',
-    flag: '🇺🇾',
-    fifaRank: 14,
-    recentForm: ['W', 'W', 'L', 'W', 'D'],
-    group: 'Group H',
-    logoColor: 'from-sky-500 to-yellow-400'
-  },
-  SEN: {
-    id: 'SEN',
-    name: 'Sénégal',
-    flag: '🇸🇳',
-    fifaRank: 17,
-    recentForm: ['W', 'W', 'D', 'L', 'W'],
-    group: 'Group I',
-    logoColor: 'from-green-600 to-red-600'
-  },
-  CRO: {
-    id: 'CRO',
-    name: 'Croatie',
-    flag: '🇭🇷',
-    fifaRank: 10,
-    recentForm: ['L', 'W', 'W', 'D', 'W'],
-    group: 'Group L',
-    logoColor: 'from-blue-700 to-red-600'
-  },
-  PAR: {
-    id: 'PAR',
-    name: 'Paraguay',
-    flag: '🇵🇾',
-    fifaRank: 56,
-    recentForm: ['L', 'D', 'W', 'L', 'W'],
-    group: 'Group D',
-    logoColor: 'from-red-650 to-blue-700'
-  },
-  RSA: {
-    id: 'RSA',
-    name: 'Afrique du Sud',
-    flag: '🇿🇦',
-    fifaRank: 59,
-    recentForm: ['W', 'D', 'L', 'W', 'D'],
-    group: 'Group A',
-    logoColor: 'from-green-600 to-yellow-500'
-  },
-  SUI: {
-    id: 'SUI',
-    name: 'Suisse',
-    flag: '🇨🇭',
-    fifaRank: 19,
-    recentForm: ['W', 'D', 'W', 'W', 'L'],
-    group: 'Group B',
-    logoColor: 'from-red-600 to-white'
+    logoColor: 'from-red-600 to-rose-700'
   }
 };
 
@@ -371,11 +299,11 @@ export const matches: Match[] = [
   {
     id: 'm-1',
     homeTeam: teams.ARG,
-    awayTeam: teams.ALG,
+    awayTeam: teams.FRA,
     date: '2026-06-20',
     time: '18:00',
     stadium: stadiums.SOFI,
-    group: 'Group J',
+    group: 'Group B',
     status: 'live',
     score: { home: 2, away: 1 },
     minute: 68
@@ -383,29 +311,29 @@ export const matches: Match[] = [
   {
     id: 'm-2',
     homeTeam: teams.ESP,
-    awayTeam: teams.URU,
+    awayTeam: teams.GER,
     date: '2026-06-21',
     time: '21:00',
     stadium: stadiums.METLIFE,
-    group: 'Group H',
+    group: 'Group E',
     status: 'upcoming',
     score: null
   },
   {
     id: 'm-3',
     homeTeam: teams.USA,
-    awayTeam: teams.PAR,
+    awayTeam: teams.MEX,
     date: '2026-06-22',
     time: '20:00',
     stadium: stadiums.AZTECA,
-    group: 'Group D',
+    group: 'Group A',
     status: 'upcoming',
     score: null
   },
   {
     id: 'm-4',
     homeTeam: teams.BRA,
-    awayTeam: teams.MAR,
+    awayTeam: teams.CAN,
     date: '2026-06-23',
     time: '19:30',
     stadium: stadiums.BC_PLACE,
@@ -416,44 +344,44 @@ export const matches: Match[] = [
   {
     id: 'm-5',
     homeTeam: teams.ENG,
-    awayTeam: teams.CRO,
+    awayTeam: teams.POR,
     date: '2026-06-24',
     time: '17:00',
     stadium: stadiums.MERCEDES,
-    group: 'Group L',
+    group: 'Group F',
     status: 'upcoming',
     score: null
   },
   {
     id: 'm-6',
     homeTeam: teams.FRA,
-    awayTeam: teams.SEN,
+    awayTeam: teams.USA,
     date: '2026-06-25',
     time: '15:00',
     stadium: stadiums.HARD_ROCK,
-    group: 'Group I',
+    group: 'Group A',
     status: 'upcoming',
     score: null
   },
   {
     id: 'm-7',
     homeTeam: teams.MEX,
-    awayTeam: teams.RSA,
+    awayTeam: teams.GER,
     date: '2026-06-26',
     time: '18:00',
     stadium: stadiums.AKRON,
-    group: 'Group A',
+    group: 'Group D',
     status: 'upcoming',
     score: null
   },
   {
     id: 'm-8',
-    homeTeam: teams.CAN,
-    awayTeam: teams.SUI,
+    homeTeam: teams.ARG,
+    awayTeam: teams.CAN,
     date: '2026-06-19', // completed yesterday / earlier today
     time: '20:00',
     stadium: stadiums.BMO_FIELD,
-    group: 'Group B',
+    group: 'Group C',
     status: 'completed',
     score: { home: 3, away: 1 }
   }

@@ -7,12 +7,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Activity, Users, AlertCircle, CalendarDays, 
   CloudSun, Info, Newspaper, Compass, ChevronRight, MapPin, 
-  Award, ShieldAlert, Thermometer, Wind, Droplets, Percent, Sparkles, Swords, TrendingUp, Heart
+  Award, ShieldAlert, Thermometer, Wind, Droplets, Percent, Sparkles, Swords, TrendingUp, Heart, Crown
 } from 'lucide-react';
 import { Match, Player } from '../types';
 import { players as allPlayers, matchDetailsData } from '../data';
-import TeamLogo from './TeamLogo';
-import PlayerCard from './PlayerCard';
 import { registerMatchView, getDailyLimitMax, getOrCreateUserId } from '../utils/freemiumTracker';
 
 // Helper to render bold text matches **text**
@@ -84,104 +82,15 @@ function extractScenarioPart(text: string): string {
   return text;
 }
 
-// Client-side fallback Poisson prediction algorithm matching backend output
-function getPoissonFallbacks(homeTeamName: string, awayTeamName: string, pPct: any) {
-  const database: { [key: string]: { scored: number; conceded: number } } = {
-    france: { scored: 2.2, conceded: 0.8 },
-    "brésil": { scored: 2.4, conceded: 0.6 },
-    brazil: { scored: 2.4, conceded: 0.6 },
-    argentine: { scored: 2.0, conceded: 0.7 },
-    argentina: { scored: 2.0, conceded: 0.7 },
-    allemagne: { scored: 2.1, conceded: 1.1 },
-    germany: { scored: 2.1, conceded: 1.1 },
-    espagne: { scored: 2.5, conceded: 0.9 },
-    spain: { scored: 2.5, conceded: 0.9 },
-    angleterre: { scored: 1.8, conceded: 0.7 },
-    england: { scored: 1.8, conceded: 0.7 },
-    portugal: { scored: 2.3, conceded: 1.0 },
-    "états-unis": { scored: 1.5, conceded: 1.2 },
-    usa: { scored: 1.5, conceded: 1.2 },
-    mexique: { scored: 1.4, conceded: 1.1 },
-    mexico: { scored: 1.4, conceded: 1.1 },
-    canada: { scored: 1.2, conceded: 1.55 }
-  };
-
-  const getAver = (name: string) => {
-    const tn = name.toLowerCase().trim();
-    for (const [key, val] of Object.entries(database)) {
-      if (tn === key || tn.includes(key) || key.includes(tn)) {
-        return val;
-      }
-    }
-    return { scored: 1.6, conceded: 1.2 };
-  };
-
-  const homeStats = getAver(homeTeamName);
-  const awayStats = getAver(awayTeamName);
-
-  let lambdaHome = (homeStats.scored + awayStats.conceded) / 2;
-  let lambdaAway = (awayStats.scored + homeStats.conceded) / 2;
-
-  if (lambdaHome < 0.5) lambdaHome = 0.5;
-  if (lambdaAway < 0.5) lambdaAway = 0.5;
-
-  if (pPct) {
-    const h = pPct.homeWinPct ?? 40;
-    const a = pPct.awayWinPct ?? 30;
-    const ratio = h / (a || 1);
-    if (ratio > 1.1) {
-      const multiplier = Math.min(1.5, 1.0 + (ratio - 1.1) * 0.3);
-      lambdaHome *= multiplier;
-      lambdaAway /= multiplier;
-    } else if (ratio < 0.9) {
-      const multiplier = Math.min(1.5, 1.0 + (0.9 - ratio) * 0.3);
-      lambdaAway *= multiplier;
-      lambdaHome /= multiplier;
-    }
-  }
-
-  const poissonProb = (k: number, lambda: number) => {
-    let factorial = 1;
-    for (let i = 2; i <= k; i++) factorial *= i;
-    return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial;
-  };
-
-  const scoresList: any[] = [];
-  let totalComputedProb = 0;
-
-  for (let h = 0; h <= 4; h++) {
-    for (let a = 0; a <= 4; a++) {
-      const probHome = poissonProb(h, lambdaHome);
-      const probAway = poissonProb(a, lambdaAway);
-      const jointProb = probHome * probAway;
-      scoresList.push({ score: `${h}-${a}`, prob: jointProb, homeGoals: h, awayGoals: a });
-      totalComputedProb += jointProb;
-    }
-  }
-
-  const normalized = scoresList.map(item => {
-    const norm = totalComputedProb > 0 ? (item.prob / totalComputedProb) * 100 : 0;
-    return { score: item.score, percentage: parseFloat(norm.toFixed(1)), homeGoals: item.homeGoals, awayGoals: item.awayGoals };
-  });
-
-  normalized.sort((x, y) => y.percentage - x.percentage);
-  return {
-    lambdaHome: parseFloat(lambdaHome.toFixed(2)),
-    lambdaAway: parseFloat(lambdaAway.toFixed(2)),
-    homeStats,
-    awayStats,
-    topScores: normalized.slice(0, 5)
-  };
-}
-
 interface MatchDetailProps {
   match: Match;
   onBack: () => void;
   isFavorite: boolean;
   onToggleFavorite: (matchId: string) => void;
+  userRole?: string;
 }
 
-export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorite }: MatchDetailProps) {
+export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorite, userRole }: MatchDetailProps) {
   const { id, homeTeam, awayTeam, date, time, stadium, status, score, group, minute } = match;
 
   const [apiData, setApiData] = useState<any>(null);
@@ -193,13 +102,16 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
   const [viewedCount, setViewedCount] = useState<number>(0);
   const [limitExceeded, setLimitExceeded] = useState<boolean>(false);
 
+  const isAdmin = userRole === 'admin';
+
   useEffect(() => {
     if (id) {
       const { count } = registerMatchView(id);
       setViewedCount(count);
-      setLimitExceeded(count > getDailyLimitMax());
+      // Admin bypass is checked first
+      setLimitExceeded(!isAdmin && count > getDailyLimitMax());
     }
-  }, [id]);
+  }, [id, isAdmin]);
 
   // Effect to record view prediction in users' historical logs once loaded successfully
   useEffect(() => {
@@ -234,6 +146,8 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
           awayTeam: awayTeam.name,
           homeFlag: homeTeam.flag,
           awayFlag: awayTeam.flag,
+          homeCrest: homeTeam.crest,
+          awayCrest: awayTeam.crest,
           winner,
           score: estScore
         })
@@ -300,7 +214,6 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
   const h2hData = apiData?.h2h || detailPlaceholder.h2h;
   const weatherData = apiData?.weather || detailPlaceholder.weather;
   const predictionData = apiData?.prediction || detailPlaceholder.prediction;
-  const poissonData = apiData?.probScores || getPoissonFallbacks(homeTeam.name, awayTeam.name, predictionData);
 
   // Filter players for local lists
   const homePlayers = allPlayers.filter(p => p.teamId === homeTeam.id);
@@ -363,8 +276,26 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
 
       {/* Freemium Counter and Warning Banner Row */}
       <div className="mb-6 flex flex-col gap-3">
-        {/* Banner if limit exceeded */}
-        {limitExceeded && (
+        {/* Banner if admin role active */}
+        {isAdmin && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 text-amber-200">
+            <div className="flex items-start gap-3">
+              <Crown className="h-5 w-5 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+              <div>
+                <p className="text-xs font-bold leading-none text-amber-400">Statut Administrateur Actif</p>
+                <p className="text-[11px] text-slate-300 mt-1 leading-normal">
+                  Vous disposez d&apos;un accès Pro illimité et exclusif. Toutes les restrictions de quotas quotidiens sont contournées et suspendues.
+                </p>
+              </div>
+            </div>
+            <div className="text-[10px] font-mono uppercase bg-amber-500/15 text-amber-400 px-2.5 py-1.2 rounded-lg border border-amber-500/25 font-bold shrink-0 text-center">
+              Accès Illimité Actif
+            </div>
+          </div>
+        )}
+
+        {/* Banner if limit exceeded (and not admin, of course) */}
+        {limitExceeded && !isAdmin && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
@@ -389,16 +320,26 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
         <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-[#0c1122]/70 px-4 py-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${limitExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${limitExceeded ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isAdmin ? 'bg-amber-400' : limitExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isAdmin ? 'bg-amber-500' : limitExceeded ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
             </span>
-            <span className="text-slate-400 font-medium">Session d'analyses de match aujourd'hui :</span>
+            <span className="text-slate-400 font-medium">
+              {isAdmin ? "Quota d'analyses pour ce compte :" : "Session d'analyses de match aujourd'hui :"}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 font-mono text-xs">
-            <span className={`font-bold ${limitExceeded ? 'text-amber-400' : 'text-emerald-400'}`}>{viewedCount}</span>
-            <span className="text-slate-500">/</span>
-            <span className="text-slate-400">2</span>
-            <span className="text-slate-500 text-[10px] uppercase font-bold ml-1">analyses gratuites</span>
+            {isAdmin ? (
+              <span className="text-amber-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1">
+                <Crown className="h-3 w-3 inline" /> Illimité
+              </span>
+            ) : (
+              <>
+                <span className={`font-bold ${limitExceeded ? 'text-amber-400' : 'text-emerald-400'}`}>{viewedCount}</span>
+                <span className="text-slate-500">/</span>
+                <span className="text-slate-400">2</span>
+                <span className="text-slate-500 text-[10px] uppercase font-bold ml-1">analyses gratuites</span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -451,9 +392,20 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
             
             {/* Home Side */}
             <div className="flex flex-1 flex-col items-center text-center">
-              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl">
-                <TeamLogo logoUrl={homeTeam.logo} fallbackFlag={homeTeam.flag} name={homeTeam.name} className="h-20 w-20" />
-                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center z-10">
+              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl bg-slate-900 border-2 border-slate-800 shadow-xl shadow-slate-950/25 p-3">
+                {homeTeam.crest ? (
+                  <img
+                    src={homeTeam.crest}
+                    alt={homeTeam.name}
+                    referrerPolicy="no-referrer"
+                    className="h-[80%] w-[80%] object-contain filter drop-shadow select-none animate-fade-in"
+                  />
+                ) : (
+                  <span className="text-5xl filter drop-shadow-md" role="img" aria-label={homeTeam.name}>
+                    {homeTeam.flag}
+                  </span>
+                )}
+                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center">
                   #{homeTeam.fifaRank}
                 </span>
               </div>
@@ -467,7 +419,7 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
             <div className="flex flex-col items-center justify-center px-4 self-center min-w-[120px]">
               {score ? (
                 <div className="flex flex-col items-center">
-                  <div className="flex items-center gap-4 bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-2.5 shadow-inner">
+                   <div className="flex items-center gap-4 bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-2.5 shadow-inner">
                     <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-widest text-white leading-none">
                       {score.home}
                     </span>
@@ -503,9 +455,20 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
 
             {/* Away Side */}
             <div className="flex flex-1 flex-col items-center text-center">
-              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl">
-                <TeamLogo logoUrl={awayTeam.logo} fallbackFlag={awayTeam.flag} name={awayTeam.name} className="h-20 w-20" />
-                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center z-10">
+              <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl bg-slate-900 border-2 border-slate-800 shadow-xl shadow-slate-950/25 p-3">
+                {awayTeam.crest ? (
+                  <img
+                    src={awayTeam.crest}
+                    alt={awayTeam.name}
+                    referrerPolicy="no-referrer"
+                    className="h-[80%] w-[80%] object-contain filter drop-shadow select-none animate-fade-in"
+                  />
+                ) : (
+                  <span className="text-5xl filter drop-shadow-md" role="img" aria-label={awayTeam.name}>
+                    {awayTeam.flag}
+                  </span>
+                )}
+                <span className="absolute -bottom-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 flex items-center justify-center">
                   #{awayTeam.fifaRank}
                 </span>
               </div>
@@ -661,18 +624,23 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
                   <div className="space-y-2">
                     {homeKeyPlayersList.length > 0 ? (
                       homeKeyPlayersList.map((p: any) => (
-                        <PlayerCard
-                          key={p.id}
-                          id={p.id}
-                          name={p.name}
-                          position={p.position}
-                          jersey_number={p.jersey_number}
-                          photo={p.photo}
-                          goals={p.goalsSeason}
-                          assists={p.assistsSeason}
-                          ai_score={p.ai_score}
-                          status={p.status}
-                        />
+                        <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-950/40 border border-slate-900">
+                          <div>
+                            <div className="text-xs font-bold text-slate-200">{p.name}</div>
+                            <div className="text-[10px] text-[10px] text-slate-500">{p.position} {p.jersey_number ? `No ${p.jersey_number}` : ''}</div>
+                          </div>
+                          <div className="text-right text-[10px] font-mono whitespace-nowrap">
+                            {p.goalsSeason !== undefined ? (
+                              <>
+                                <span className="text-emerald-400 font-bold">{p.goalsSeason} B</span>
+                                <span className="text-slate-500 mx-1">•</span>
+                                <span className="text-slate-400">{p.assistsSeason} A</span>
+                              </>
+                            ) : (
+                              <span className="text-purple-400 font-bold">Coef {p.ai_score ?? "8.1"}/10</span>
+                            )}
+                          </div>
+                        </div>
                       ))
                     ) : (
                       <div className="text-xs text-slate-500 italic p-2">Aucun joueur renseigné</div>
@@ -691,18 +659,23 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
                   <div className="space-y-2">
                     {awayKeyPlayersList.length > 0 ? (
                       awayKeyPlayersList.map((p: any) => (
-                        <PlayerCard
-                          key={p.id}
-                          id={p.id}
-                          name={p.name}
-                          position={p.position}
-                          jersey_number={p.jersey_number}
-                          photo={p.photo}
-                          goals={p.goalsSeason}
-                          assists={p.assistsSeason}
-                          ai_score={p.ai_score}
-                          status={p.status}
-                        />
+                        <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-950/40 border border-slate-900">
+                          <div>
+                            <div className="text-xs font-bold text-slate-200">{p.name}</div>
+                            <div className="text-[10px] text-slate-500">{p.position} {p.jersey_number ? `No ${p.jersey_number}` : ''}</div>
+                          </div>
+                          <div className="text-right text-[10px] font-mono whitespace-nowrap">
+                            {p.goalsSeason !== undefined ? (
+                              <>
+                                <span className="text-emerald-400 font-bold">{p.goalsSeason} B</span>
+                                <span className="text-slate-500 mx-1">•</span>
+                                <span className="text-slate-400">{p.assistsSeason} A</span>
+                              </>
+                            ) : (
+                              <span className="text-purple-400 font-bold">Coef {p.ai_score ?? "8.0"}/10</span>
+                            )}
+                          </div>
+                        </div>
                       ))
                     ) : (
                       <div className="text-xs text-slate-500 italic p-2">Aucun joueur renseigné</div>
@@ -747,15 +720,21 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
                   <div className="space-y-1.5 min-h-[50px]">
                     {homeInjuredList.length > 0 ? (
                       homeInjuredList.map((p: any) => (
-                        <PlayerCard
-                          key={p.id || p.name}
-                          id={p.id || ""}
-                          name={p.name}
-                          position={p.position || "Inconnu"}
-                          photo={p.photo}
-                          status={p.status}
-                          reason={p.reason}
-                        />
+                        <div key={p.id || p.name} className="flex items-center justify-between p-2 rounded bg-slate-950/30 border border-slate-900">
+                          <div>
+                            <span className="text-xs text-slate-200 block">{p.name}</span>
+                            {p.reason && (
+                              <span className="text-[9px] text-slate-500 block">{p.reason}</span>
+                            )}
+                          </div>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 whitespace-nowrap self-start ${
+                            p.status === 'injured' ? 'bg-rose-950/40 text-rose-400 border border-rose-900/40' :
+                            p.status === 'suspended' ? 'bg-slate-900 text-slate-400 border border-slate-800' :
+                            'bg-amber-950/30 text-amber-500 border border-amber-900/30'
+                          }`}>
+                            {p.status === 'injured' ? 'Blessé' : p.status === 'suspended' ? 'Suspendu' : 'Incertain'}
+                          </span>
+                        </div>
                       ))
                     ) : (
                       <p className="text-[11px] text-slate-500 italic p-2">Aucun joueur absent ou incertain.</p>
@@ -772,15 +751,21 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
                   <div className="space-y-1.5 min-h-[50px]">
                     {awayInjuredList.length > 0 ? (
                       awayInjuredList.map((p: any) => (
-                        <PlayerCard
-                          key={p.id || p.name}
-                          id={p.id || ""}
-                          name={p.name}
-                          position={p.position || "Inconnu"}
-                          photo={p.photo}
-                          status={p.status}
-                          reason={p.reason}
-                        />
+                        <div key={p.id || p.name} className="flex items-center justify-between p-2 rounded bg-slate-950/30 border border-slate-900">
+                          <div>
+                            <span className="text-xs text-slate-200 block">{p.name}</span>
+                            {p.reason && (
+                              <span className="text-[9px] text-slate-500 block">{p.reason}</span>
+                            )}
+                          </div>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 whitespace-nowrap self-start ${
+                            p.status === 'injured' ? 'bg-rose-950/40 text-rose-400 border border-rose-900/40' :
+                            p.status === 'suspended' ? 'bg-slate-900 text-slate-400 border border-slate-800' :
+                            'bg-amber-950/30 text-amber-500 border border-amber-900/30'
+                          }`}>
+                            {p.status === 'injured' ? 'Blessé' : p.status === 'suspended' ? 'Suspendu' : 'Incertain'}
+                          </span>
+                        </div>
                       ))
                     ) : (
                       <p className="text-[11px] text-slate-500 italic p-2">Aucun joueur absent ou incertain.</p>
@@ -1124,83 +1109,11 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
                 </div>
               )}
 
-              {/* Scénarios probables (Distribution de Poisson) */}
-              <div className="space-y-4 rounded-xl border border-slate-800 bg-[#070b18] p-5 shadow-inner">
-                <div className="border-b border-slate-800/80 pb-2.5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="flex items-center gap-1.5 font-sans text-xs font-bold text-slate-100 uppercase tracking-wider">
-                      <Activity className="h-4 w-4 text-emerald-400" />
-                      <span>Scénarios Probables</span>
-                    </h3>
-                    <span className="rounded bg-slate-900 border border-slate-800 px-1.5 py-0.5 text-[9px] font-mono text-slate-400">POISSON DISTRIBUTION</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                    Estimation statistique par distribution de Poisson basée sur l&apos;historique de buts (5 derniers matchs) :
-                    {" "}<strong className="text-slate-300">{homeTeam.name}</strong> ({poissonData.homeStats.scored} marqués, {poissonData.homeStats.conceded} encaissés) vs
-                    {" "}<strong className="text-slate-300">{awayTeam.name}</strong> ({poissonData.awayStats.scored} marqués, {poissonData.awayStats.conceded} encaissés).
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  
-                  {/* Lambda metrics expectations */}
-                  <div className="rounded-xl bg-slate-950/60 border border-slate-900 p-3.5 flex flex-col justify-center space-y-2 text-[11px] text-slate-400">
-                    <div className="flex justify-between items-center">
-                      <span className="flex items-center gap-1"><span className="text-xs" role="img" aria-label={homeTeam.name}>{homeTeam.flag}</span> <strong className="text-slate-300 font-medium">{homeTeam.name}</strong> :</span>
-                      <span className="font-mono font-bold text-emerald-400 bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-900/30 text-[11px]">λ = {poissonData.lambdaHome} buts/match</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="flex items-center gap-1"><span className="text-xs" role="img" aria-label={awayTeam.name}>{awayTeam.flag}</span> <strong className="text-slate-300 font-medium">{awayTeam.name}</strong> :</span>
-                      <span className="font-mono font-bold text-purple-400 bg-purple-950/20 px-2 py-0.5 rounded border border-purple-900/30 text-[11px]">λ = {poissonData.lambdaAway} buts/match</span>
-                    </div>
-                    <div className="text-[10px] text-slate-500 italic mt-1.5 leading-relaxed border-t border-slate-800/60 pt-2 font-light">
-                      Les paramètres lambda (λ) traduisent le potentiel offensif attendu ajusté à la force défensive adverse pour cette confrontation.
-                    </div>
-                  </div>
-
-                  {/* Top scores list progress-bars */}
-                  <div className="space-y-3">
-                    {/* Calculate max percentage for proportional scaling */}
-                    {(() => {
-                      const maxPercentage = Math.max(...(poissonData.topScores.map((s: any) => s.percentage) as number[]));
-                      return poissonData.topScores.map((item: any, idx: number) => {
-                        let barColor = "bg-amber-500"; // Draw
-                        if (item.homeGoals > item.awayGoals) {
-                          barColor = "bg-emerald-500";
-                        } else if (item.awayGoals > item.homeGoals) {
-                          barColor = "bg-purple-400";
-                        }
-
-                        // Label color for team scores
-                        const isHomeWinner = item.homeGoals > item.awayGoals;
-                        const isAwayWinner = item.awayGoals > item.homeGoals;
-
-                        return (
-                          <div key={idx} className="space-y-1">
-                            <div className="flex items-center justify-between text-xs font-sans">
-                              <span className="font-mono font-black text-[#f1f5f9] tracking-wider bg-slate-950 border border-slate-800 shrink-0 px-2.5 py-0.5 rounded text-center text-[11px]">
-                                <span className={isHomeWinner ? "text-emerald-400" : ""}>{item.homeGoals}</span>
-                                <span className="text-slate-500 px-1">-</span>
-                                <span className={isAwayWinner ? "text-purple-400" : ""}>{item.awayGoals}</span>
-                              </span>
-                              
-                              <span className="font-mono font-bold text-slate-300 text-[11px]">
-                                {item.percentage}%
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full bg-slate-950 border border-slate-900 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                                style={{ width: `${(item.percentage / (maxPercentage || 1)) * 100}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-
-                </div>
+              {/* Styled Placeholder/Box requested empty for now */}
+              <div className="rounded-xl border border-slate-800/80 bg-slate-950/30 p-4 text-center">
+                <p className="text-xs text-slate-400 italic">
+                  Nos calculs prédictifs seront mis à jour en temps réel avec les cotes sportives et statistiques de l&apos;événement.
+                </p>
               </div>
 
             </div>

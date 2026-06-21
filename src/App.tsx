@@ -6,14 +6,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Trophy, Search, Calendar, Landmark, MapPin, Sparkles, 
-  Tv2, SlidersHorizontal, ArrowRight, Star, HeartPulse, Heart 
+  Tv2, SlidersHorizontal, ArrowRight, Star, HeartPulse, Heart,
+  ChevronDown, ChevronUp, Clock, History
 } from 'lucide-react';
 import Navigation from './components/Navigation';
 import MatchCard from './components/MatchCard';
 import MatchDetail from './components/MatchDetail';
 import Pricing from './components/Pricing';
 import PredictionHistory from './components/PredictionHistory';
-import Standings from './components/Standings';
 import { Match } from './types';
 import { getOrCreateUserId } from './utils/freemiumTracker';
 
@@ -38,10 +38,94 @@ export default function App() {
     loadMatches();
   }, []);
 
+  // User Profile, Account management & Admin role states
+  const [userEmail, setUserEmail] = useState<string>(() => {
+    const saved = localStorage.getItem('matchiq_user_email');
+    if (saved) return saved;
+    // Default to our user's email so they don't have to struggle logging in during the preview!
+    return 't3ch.frpbypass33@gmail.com'; 
+  });
+  const [userRole, setUserRole] = useState<string>('user');
+  const [userId, setUserId] = useState<string>(() => getOrCreateUserId());
+
+  // Load and synchronize user role from backend mirroring Supabase
+  useEffect(() => {
+    async function fetchUserProfile() {
+      try {
+        const uId = getOrCreateUserId();
+        const res = await fetch(`/api/user/profile?userId=${uId}&email=${userEmail}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            setUserRole(data.user.role);
+            localStorage.setItem('matchiq_user_email', data.user.email);
+            if (data.user.id) {
+              localStorage.setItem('matchiq_user_id', data.user.id);
+              setUserId(data.user.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error loading user profile:", err);
+      }
+    }
+    fetchUserProfile();
+  }, [userEmail]);
+
+  // Handle manual login/logout from Navigation header
+  const handleLogin = async (email: string) => {
+    try {
+      const res = await fetch('/api/user/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, userId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          setUserEmail(data.user.email);
+          setUserRole(data.user.role);
+          localStorage.setItem('matchiq_user_email', data.user.email);
+          if (data.user.id) {
+            localStorage.setItem('matchiq_user_id', data.user.id);
+            setUserId(data.user.id);
+          }
+          return true;
+        }
+      }
+    } catch (err) {
+      console.error("Login verification failed:", err);
+    }
+    return false;
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('matchiq_user_email');
+    // Revert to default anonymous guest ID
+    const newGuestId = 'usr_' + Math.random().toString(36).substring(2, 11);
+    localStorage.setItem('matchiq_user_id', newGuestId);
+    setUserId(newGuestId);
+    setUserEmail('');
+    setUserRole('user');
+  };
+
   // Navigation / Routing state
-  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'standings' | 'pricing' | 'history'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'pricing' | 'history'>('all');
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
+  
+  // Dashboard collapsible section states - true means collapsed (repliée)
+  const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>({
+    hier: true,
+    past: true,
+  });
+
+  const toggleSection = (sectionKey: string) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
   
   // Search & Filtering state
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -95,9 +179,6 @@ export default function App() {
       if (hash === '#pricing') {
         setActiveTab('pricing');
         setSelectedMatchId(null);
-      } else if (hash === '#standings' || hash === '#classement' || hash === '#classements') {
-        setActiveTab('standings');
-        setSelectedMatchId(null);
       } else if (hash === '#historique' || hash === '#history') {
         setActiveTab('history');
         setSelectedMatchId(null);
@@ -106,8 +187,8 @@ export default function App() {
         setSelectedMatchId(id);
       } else {
         setSelectedMatchId(null);
-        // Clear activeTab pricing, history or standings when we are on home route without hash
-        setActiveTab(prev => (prev === 'pricing' || prev === 'history' || prev === 'standings') ? 'all' : prev);
+        // Clear activeTab pricing or history when we are on home route without hash
+        setActiveTab(prev => (prev === 'pricing' || prev === 'history') ? 'all' : prev);
       }
     };
 
@@ -129,18 +210,43 @@ export default function App() {
   const handleBackToHome = () => {
     window.location.hash = '';
     setSelectedMatchId(null);
-    setActiveTab(prev => (prev === 'pricing' || prev === 'history' || prev === 'standings') ? 'all' : prev);
+    setActiveTab(prev => (prev === 'pricing' || prev === 'history') ? 'all' : prev);
   };
 
   // Get active selected match
   const selectedMatch = allMatches.find(m => m.id === selectedMatchId);
 
+  // Helper to get local date strings based on current date
+  const getLocalDateString = (offsetDays = 0) => {
+    const d = new Date();
+    if (offsetDays !== 0) {
+      d.setDate(d.getDate() + offsetDays);
+    }
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper to calculate difference in days between two dates cleanly (independent of timezone hour shifts)
+  const getDaysDifference = (matchDateStr: string) => {
+    if (!matchDateStr) return 0;
+    const [mYear, mMonth, mDay] = matchDateStr.split('-').map(Number);
+    const today = new Date();
+    
+    const d1 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const d2 = new Date(mYear, mMonth - 1, mDay);
+    
+    const diffTime = d2.getTime() - d1.getTime();
+    return Math.round(diffTime / (1000 * 60 * 60 * 24));
+  };
+
   // Filter logic
   const filteredMatches = allMatches.filter(match => {
-    // 1. Tab filter (Today's matches vs All matches)
-    // For test visualization, "today" covers matches occurring on 2026-06-20 (our default testing date) or are live
+    // 1. Tab filter (Today's matches vs All matches) synchronized with the current system date
     if (activeTab === 'today') {
-      const isTodayMatch = match.date === '2026-06-20' || match.status === 'live';
+      const todayStr = getLocalDateString(0);
+      const isTodayMatch = match.date === todayStr || match.status === 'live';
       if (!isTodayMatch) return false;
     }
 
@@ -162,32 +268,97 @@ export default function App() {
     return true;
   });
 
-  // Group filtered matches by unique date strings
-  const groupedMatches: { [date: string]: Match[] } = {};
-  filteredMatches.forEach(match => {
-    if (!groupedMatches[match.date]) {
-      groupedMatches[match.date] = [];
+  // Categorize filtered matches into 7 precise temporal sections for the new sorted dashboard list
+  const liveMatchesSec = filteredMatches.filter(m => m.status === 'live');
+  const nonLiveMatches = filteredMatches.filter(m => m.status !== 'live');
+
+  const todayMatchesSec: Match[] = [];
+  const tomorrowMatchesSec: Match[] = [];
+  const afterTomorrowMatchesSec: Match[] = [];
+  const thisWeekMatchesSec: Match[] = [];
+  const yesterdayMatchesSec: Match[] = [];
+  const pastMatchesSec: Match[] = [];
+
+  nonLiveMatches.forEach(match => {
+    const diff = getDaysDifference(match.date);
+    if (diff === 0) {
+      todayMatchesSec.push(match);
+    } else if (diff === 1) {
+      tomorrowMatchesSec.push(match);
+    } else if (diff === 2) {
+      afterTomorrowMatchesSec.push(match);
+    } else if (diff >= 3) {
+      thisWeekMatchesSec.push(match);
+    } else if (diff === -1) {
+      yesterdayMatchesSec.push(match);
+    } else if (diff <= -2) {
+      pastMatchesSec.push(match);
     }
-    groupedMatches[match.date].push(match);
   });
 
-  // Sort dates chronologically
-  const sortedDates = Object.keys(groupedMatches).sort((a, b) => {
-    return new Date(a).getTime() - new Date(b).getTime();
-  });
-
-  // Helper translations for day headings
-  const formatGroupHeaderDate = (dateStr: string) => {
-    const dateObj = new Date(dateStr);
-    const dayName = dateObj.toLocaleDateString('fr-FR', { weekday: 'long' });
-    const dayNum = dateObj.getDate();
-    const monthName = dateObj.toLocaleDateString('fr-FR', { month: 'long' });
-    return `${dayName} ${dayNum} ${monthName}`;
-  };
+  const hasAnyMatches = filteredMatches.length > 0;
 
   // Separate live matches for a high-priority live dashboard widget at the very top of the home page
   const liveMatches = allMatches.filter(m => m.status === 'live');
   const favoriteMatches = allMatches.filter(m => favorites.includes(m.id));
+
+  // High-performance reusable UI renderer for each dashboard temporal section
+  const renderSection = (
+    title: string, 
+    matchesList: Match[], 
+    icon: React.ReactNode, 
+    badge?: React.ReactNode,
+    collapsibleKey?: 'hier' | 'past'
+  ) => {
+    if (matchesList.length === 0) return null;
+
+    const isCollapsible = !!collapsibleKey;
+    const isCollapsed = isCollapsible ? collapsedSections[collapsibleKey] : false;
+
+    return (
+      <div className="space-y-4" id={`section-${collapsibleKey || title.toLowerCase().replace(/\s+/g, '-')}`}>
+        {/* Section Header */}
+        <div 
+          onClick={() => isCollapsible && toggleSection(collapsibleKey)}
+          className={`flex items-center justify-between border-b border-slate-800/60 pb-2.5 ${isCollapsible ? 'cursor-pointer group select-none hover:border-slate-700/80 transition-colors' : ''}`}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 shadow-sm shadow-emerald-500/5">
+              {icon}
+            </div>
+            <div className="flex items-center gap-2.5">
+              <h3 className="font-sans text-sm sm:text-base font-extrabold tracking-tight text-white capitalize group-hover:text-emerald-400 transition-colors">
+                {title} <span className="text-xs font-mono font-bold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded ml-1.5">{matchesList.length} match{matchesList.length > 1 ? 's' : ''}</span>
+              </h3>
+              {badge && badge}
+            </div>
+          </div>
+
+          {isCollapsible && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-bold tracking-wider font-mono bg-slate-900/60 border border-slate-800/80 px-2.5 py-1 rounded-lg group-hover:text-emerald-400 group-hover:border-emerald-500/30 transition-all duration-300">
+              <span>{isCollapsed ? 'DÉPLIER' : 'REPLIER'}</span>
+              <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${!isCollapsed ? 'rotate-180 text-emerald-400' : 'text-slate-500'}`} />
+            </div>
+          )}
+        </div>
+
+        {/* Section Grid Content */}
+        {!isCollapsed && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 transition-opacity duration-300">
+            {matchesList.map((match) => (
+              <MatchCard
+                key={match.id}
+                match={match}
+                onSelect={handleSelectMatch}
+                isFavorite={favorites.includes(match.id)}
+                onToggleFavorite={handleToggleFavorite}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#060913] font-sans antialiased text-slate-205 pb-16">
@@ -201,14 +372,16 @@ export default function App() {
             window.location.hash = '#pricing';
           } else if (tab === 'history') {
             window.location.hash = '#historique';
-          } else if (tab === 'standings') {
-            window.location.hash = '#classement';
           } else {
             window.location.hash = '';
             setSelectedMatchId(null);
           }
         }}
         onGoHome={handleBackToHome}
+        userEmail={userEmail}
+        userRole={userRole}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
       />
 
       {/* Dynamic Main Body */}
@@ -222,8 +395,6 @@ export default function App() {
             window.location.hash = '';
           }}
         />
-      ) : activeTab === 'standings' ? (
-        <Standings onBack={handleBackToHome} />
       ) : selectedMatch ? (
         // Detal Match Page Route View
         <MatchDetail 
@@ -231,6 +402,7 @@ export default function App() {
           onBack={handleBackToHome} 
           isFavorite={favorites.includes(selectedMatch.id)}
           onToggleFavorite={handleToggleFavorite}
+          userRole={userRole}
         />
       ) : (
         // Home List Page Route View
@@ -284,63 +456,7 @@ export default function App() {
 
           </div>
 
-          {/* Quick Realtime Active Highlight Badge Carousel */}
-          {liveMatches.length > 0 && (
-            <div className="mb-8">
-              <div className="flex items-center gap-2 mb-3.5">
-                <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-rose-400">
-                  Matchs en Direct (Live Dashboard)
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {liveMatches.map(lm => (
-                  <div 
-                    key={lm.id}
-                    onClick={() => handleSelectMatch(lm.id)}
-                    className="relative overflow-hidden rounded-2xl border border-rose-900/60 bg-gradient-to-r from-rose-950/25 to-[#16111f] p-4 flex items-center justify-between gap-3 cursor-pointer hover:border-rose-500/80 transition-all shadow-md group select-none active:scale-[0.99]"
-                    id={`live-widget-${lm.id}`}
-                  >
-                    <div className="absolute top-0 right-0 bg-rose-500 text-slate-950 text-[9px] font-mono font-black uppercase px-2.5 py-0.5 rounded-bl select-none">
-                      LIVE NOW
-                    </div>
 
-                    <div className="flex-1 grid grid-cols-3 items-center gap-1.5 pt-2">
-                      {/* Home Team */}
-                      <div className="flex items-center justify-end gap-2 text-right">
-                        <span className="font-bold text-xs sm:text-sm text-slate-100 group-hover:text-rose-400 truncate max-w-[70px] xs:max-w-[90px] sm:max-w-[120px]">
-                          {lm.homeTeam.name}
-                        </span>
-                        <span className="text-xl sm:text-2xl shrink-0 filter drop-shadow select-none">{lm.homeTeam.flag}</span>
-                      </div>
-                      
-                      {/* Score Segment */}
-                      <div className="flex flex-col items-center justify-center text-center">
-                        <span className="whitespace-nowrap inline-flex items-center justify-center font-mono text-base sm:text-lg font-black tracking-widest bg-slate-950/95 border border-slate-800 rounded px-2.5 py-1 text-rose-400 shadow-md">
-                          {lm.score?.home} - {lm.score?.away}
-                        </span>
-                        <span className="whitespace-nowrap block text-[8px] font-bold text-rose-500 font-mono tracking-wider mt-1 select-none text-center">
-                          MIN {lm.minute}&apos;
-                        </span>
-                      </div>
-
-                      {/* Away Team */}
-                      <div className="flex items-center justify-start gap-2 text-left">
-                        <span className="text-xl sm:text-2xl shrink-0 filter drop-shadow select-none">{lm.awayTeam.flag}</span>
-                        <span className="font-bold text-xs sm:text-sm text-slate-100 group-hover:text-rose-400 truncate max-w-[70px] xs:max-w-[90px] sm:max-w-[120px]">
-                          {lm.awayTeam.name}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="h-8 w-8 rounded-full bg-rose-950/40 border border-rose-800/40 flex items-center justify-center text-rose-400 hover:bg-rose-900 transition-colors shrink-0">
-                      <ArrowRight className="h-4 w-4" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Filters & Search Toolbar Panel */}
           <div className="mb-6 bg-[#0e1324] border border-slate-800/80 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -374,7 +490,7 @@ export default function App() {
               </div>
               
               <div className="flex flex-wrap gap-1">
-                {['all', 'Group A', 'Group B', 'Group C', 'Group D', 'Group E', 'Group F', 'Group G', 'Group H', 'Group I', 'Group J', 'Group K', 'Group L'].map((g) => (
+                {['all', 'Group A', 'Group B', 'Group C', 'Group D', 'Group E', 'Group F'].map((g) => (
                   <button
                     key={g}
                     onClick={() => setGroupFilter(g)}
@@ -403,7 +519,7 @@ export default function App() {
                 Les données de l&apos;API BSD ne rapportent aucun match programmé pour les jours à venir. Veuillez ré-essayer ultérieurement.
               </p>
             </div>
-          ) : sortedDates.length > 0 ? (
+          ) : hasAnyMatches ? (
             <div className="space-y-8">
               {/* Mes matchs favoris Section */}
               {favoriteMatches.length > 0 && (
@@ -428,38 +544,65 @@ export default function App() {
                 </div>
               )}
 
-              {sortedDates.map((dateStr) => {
-                const dateMatches = groupedMatches[dateStr];
-                return (
-                  <div key={dateStr} className="space-y-4">
-                    {/* Date grouping heading */}
-                    <div className="flex items-center gap-3.5 border-b border-slate-800/60 pb-2">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 shadow-sm">
-                        <Calendar className="h-4 w-4" />
-                      </div>
-                      <h3 className="font-sans text-sm font-bold tracking-tight text-white capitalize">
-                        {formatGroupHeaderDate(dateStr)}
-                      </h3>
-                      <span className="text-[10px] font-mono text-slate-500 font-bold bg-slate-900 border border-slate-800 rounded px-2 py-0.5">
-                        {dateMatches.length} MATCH{dateMatches.length > 1 ? 'S' : ''}
-                      </span>
-                    </div>
+              {/* 1. En direct */}
+              {renderSection(
+                "En direct",
+                liveMatchesSec,
+                <Tv2 className="h-4.5 w-4.5 text-rose-500" />,
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-rose-500 border border-rose-500/20 shadow-lg shadow-rose-500/5 select-none animate-pulse">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                  </span>
+                  LIVE
+                </span>
+              )}
 
-                    {/* Grid matches list */}
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      {dateMatches.map((match) => (
-                        <MatchCard
-                          key={match.id}
-                          match={match}
-                          onSelect={handleSelectMatch}
-                          isFavorite={favorites.includes(match.id)}
-                          onToggleFavorite={handleToggleFavorite}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              {/* 2. Aujourd'hui */}
+              {renderSection(
+                "Aujourd'hui",
+                todayMatchesSec,
+                <Calendar className="h-4.5 w-4.5 text-emerald-400" />
+              )}
+
+              {/* 3. Demain */}
+              {renderSection(
+                "Demain",
+                tomorrowMatchesSec,
+                <Clock className="h-4.5 w-4.5 text-emerald-400" />
+              )}
+
+              {/* 4. Après-demain */}
+              {renderSection(
+                "Après-demain",
+                afterTomorrowMatchesSec,
+                <Clock className="h-4.5 w-4.5 text-blue-400" />
+              )}
+
+              {/* 5. Cette semaine */}
+              {renderSection(
+                "Cette semaine",
+                thisWeekMatchesSec,
+                <Sparkles className="h-4.5 w-4.5 text-purple-400" />
+              )}
+
+              {/* 6. Hier */}
+              {renderSection(
+                "Hier",
+                yesterdayMatchesSec,
+                <History className="h-4.5 w-4.5 text-slate-400" />,
+                undefined,
+                'hier'
+              )}
+
+              {/* 7. Résultats passés */}
+              {renderSection(
+                "Résultats passés",
+                pastMatchesSec,
+                <Trophy className="h-4.5 w-4.5 text-slate-400" />,
+                undefined,
+                'past'
+              )}
             </div>
           ) : (
             // Empty filter state

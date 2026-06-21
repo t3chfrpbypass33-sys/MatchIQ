@@ -7,11 +7,11 @@ export interface Team {
   id: string;
   name: string;
   flag: string; // Emoji flags like 🇫🇷, 🇧🇷, 🇺🇸, etc.
-  logo?: string; // High quality logo image URL
   fifaRank: number;
   recentForm: ('W' | 'D' | 'L')[];
   group: string;
   logoColor: string; // CSS color or hex representing team color
+  crest?: string;
 }
 
 export interface Player {

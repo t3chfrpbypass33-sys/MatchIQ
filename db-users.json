@@ -1,0 +1,14 @@
+[
+  {
+    "id": "usr_t3ch_admin",
+    "email": "t3ch.frpbypass33@gmail.com",
+    "role": "admin",
+    "created_at": "2026-06-21T05:28:18-07:00"
+  },
+  {
+    "id": "usr_test_user",
+    "email": "test@matchiq.app",
+    "role": "user",
+    "created_at": "2026-06-21T05:28:18-07:00"
+  }
+]

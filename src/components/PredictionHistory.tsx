@@ -9,6 +9,8 @@ interface HistoryItem {
   awayTeam: string;
   homeFlag: string;
   awayFlag: string;
+  homeCrest?: string;
+  awayCrest?: string;
   winner: string;
   score: string;
   timestamp: number;
@@ -133,12 +135,34 @@ export default function PredictionHistory({ onSelectMatch, onBrowseMatches }: Pr
                   </div>
                   <div>
                     {/* Teams block */}
-                    <div className="flex items-center gap-1.5 font-sans font-extrabold text-[#f1f5f9] tracking-tight text-sm">
-                      <span className="text-base" role="img" aria-label={item.homeTeam}>{item.homeFlag}</span>
-                      <span>{item.homeTeam}</span>
-                      <span className="text-slate-500 font-mono font-medium text-xs px-1">VS</span>
-                      <span className="text-base" role="img" aria-label={item.awayTeam}>{item.awayFlag}</span>
-                      <span>{item.awayTeam}</span>
+                    <div className="flex items-center gap-2.5 font-sans font-extrabold text-[#f1f5f9] tracking-tight text-sm">
+                      <div className="flex items-center gap-1.5">
+                        {item.homeCrest ? (
+                          <img
+                            src={item.homeCrest}
+                            alt={item.homeTeam}
+                            referrerPolicy="no-referrer"
+                            className="h-4.5 w-4.5 object-contain select-none"
+                          />
+                        ) : (
+                          <span className="text-base" role="img" aria-label={item.homeTeam}>{item.homeFlag}</span>
+                        )}
+                        <span>{item.homeTeam}</span>
+                      </div>
+                      <span className="text-slate-500 font-mono font-medium text-xs px-0.5">VS</span>
+                      <div className="flex items-center gap-1.5">
+                        {item.awayCrest ? (
+                          <img
+                            src={item.awayCrest}
+                            alt={item.awayTeam}
+                            referrerPolicy="no-referrer"
+                            className="h-4.5 w-4.5 object-contain select-none"
+                          />
+                        ) : (
+                          <span className="text-base" role="img" aria-label={item.awayTeam}>{item.awayFlag}</span>
+                        )}
+                        <span>{item.awayTeam}</span>
+                      </div>
                     </div>
 
                     {/* Meta dates info */}
