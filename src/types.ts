@@ -46,5 +46,5 @@ export interface Match {
     home: number;
     away: number;
   } | null;
-  minute?: number; // Only if live
+  minute?: number | string; // Only if live
 }

@@ -12,61 +12,27 @@ import {
 import { Match, Player } from '../types';
 import { players as allPlayers, matchDetailsData } from '../data';
 import { registerMatchView, getDailyLimitMax, getOrCreateUserId } from '../utils/freemiumTracker';
-
-// Helper to render bold text matches **text**
-function boldMarkup(text: string) {
-  if (!text) return null;
-  const parts = text.split(/(\*\*.*?\*\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={i} className="font-semibold text-white">{part.slice(2, -2)}</strong>;
-    }
-    return part;
-  });
-}
+import Markdown from 'react-markdown';
 
 // Custom Markdown-lite formatter to render formatted paragraphs and items cleanly
 function formatGeminiText(text: string) {
   if (!text) return null;
-  const blocks = text.split(/\n\n+/);
   return (
-    <div className="space-y-3.5 text-xs text-slate-300 leading-relaxed font-sans">
-      {blocks.map((block, idx) => {
-        const trimmed = block.trim();
-        if (!trimmed) return null;
-
-        // Header matching
-        if (trimmed.startsWith("###") || trimmed.startsWith("##") || trimmed.startsWith("#")) {
-          const headingText = trimmed.replace(/^[#\s\d\.]+/, "").trim();
-          const partNum = trimmed.match(/\d+/)?.[0] || "";
-          return (
-            <h4 key={idx} className="text-xs font-extrabold text-indigo-400 mt-5 mb-1.5 uppercase tracking-wider flex items-center gap-1.5 border-b border-indigo-950/40 pb-1">
-              {partNum && <span className="bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded text-[10px]">{partNum}</span>}
-              <span>{headingText}</span>
-            </h4>
-          );
-        }
-
-        // List item matching
-        if (trimmed.includes("\n- ") || trimmed.includes("\n* ") || trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-          const lines = trimmed.split(/\n/);
-          return (
-            <ul key={idx} className="list-disc pl-5 space-y-2 text-slate-355 my-2">
-              {lines.map((line, lidx) => {
-                const item = line.replace(/^[\s-*]+\s*/, "");
-                return <li key={lidx} className="leading-relaxed">{boldMarkup(item)}</li>;
-              })}
-            </ul>
-          );
-        }
-
-        // Paragraph matching
-        return (
-          <p key={idx} className="text-slate-300 leading-relaxed font-sans antialiased whitespace-pre-line text-[11px]">
-            {boldMarkup(trimmed)}
-          </p>
-        );
-      })}
+    <div className="text-slate-300 leading-relaxed font-sans text-xs">
+      <Markdown
+        components={{
+          h1: ({node, ...props}) => <h1 className="text-sm font-extrabold text-indigo-400 mt-4 mb-2 uppercase tracking-wider border-b border-indigo-950/40 pb-1" {...props} />,
+          h2: ({node, ...props}) => <h2 className="text-sm font-extrabold text-indigo-400 mt-4 mb-2 uppercase tracking-wider border-b border-indigo-950/40 pb-1" {...props} />,
+          h3: ({node, ...props}) => <h3 className="text-sm font-extrabold text-indigo-400 mt-4 mb-2 uppercase tracking-wider border-b border-indigo-950/40 pb-1" {...props} />,
+          h4: ({node, ...props}) => <h4 className="text-xs font-extrabold text-indigo-400 mt-4 mb-2 uppercase tracking-wider border-b border-indigo-950/40 pb-1" {...props} />,
+          p: ({node, ...props}) => <p className="text-[11px] leading-relaxed mb-3 text-slate-300" {...props} />,
+          ul: ({node, ...props}) => <ul className="list-disc pl-5 space-y-1 my-2 text-slate-355" {...props} />,
+          li: ({node, ...props}) => <li className="text-[11px] leading-relaxed" {...props} />,
+          strong: ({node, ...props}) => <strong className="font-semibold text-white" {...props} />,
+        }}
+      >
+        {text}
+      </Markdown>
     </div>
   );
 }
@@ -171,28 +137,28 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
       }
     }
 
-    async function loadGeminiAnalysis() {
-      try {
-        setLoadingAnalysis(true);
-        setAnalysisError('');
-        const res = await fetch(`/api/gemini-analysis/${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setGeminiAnalysis(data.analysis || '');
-        } else {
-          setAnalysisError("Impossible de charger l'analyse IA de Gemini.");
-        }
-      } catch (err) {
-        console.error("Failed to fetch Gemini Analysis:", err);
-        setAnalysisError("Erreur réseau lors du chargement de l'analyse.");
-      } finally {
-        setLoadingAnalysis(false);
-      }
-    }
-
     loadStats();
-    loadGeminiAnalysis();
+    // loadGeminiAnalysis(); // Removed automatic fetch
   }, [id]);
+
+  async function triggerGeminiAnalysis() {
+    try {
+      setLoadingAnalysis(true);
+      setAnalysisError('');
+      const res = await fetch(`/api/gemini-analysis/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGeminiAnalysis(data.analysis || '');
+      } else {
+        setAnalysisError("Impossible de charger l'analyse IA de Gemini.");
+      }
+    } catch (err) {
+      console.error("Failed to fetch Gemini Analysis:", err);
+      setAnalysisError("Erreur réseau lors du chargement de l'analyse.");
+    } finally {
+      setLoadingAnalysis(false);
+    }
+  }
 
   // Retrieve optional match details or supply premium defaults
   const detailPlaceholder = matchDetailsData[id] || {
@@ -250,6 +216,7 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
 
   const sectionsList = [
     { id: 'all', title: 'Toutes les analyses', icon: Sparkles },
+    { id: 'stats', title: 'Statistiques', icon: Activity },
     { id: 'forme', title: 'Forme récente', icon: Activity },
     { id: 'joueurs', title: 'Joueurs clés', icon: Users },
     { id: 'blessures', title: 'Blessures', icon: AlertCircle },
@@ -524,6 +491,64 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
       {/* Match details sections layout context */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         
+        {/* ==============================================
+            SECTION: STATISTIQUES DU MATCH
+            ============================================== */}
+        {(activeSection === 'all' || activeSection === 'stats') && (
+          <div id="section-stats" className="rounded-2xl border border-slate-800 bg-[#0f1426] p-6 shadow-md">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <TrendingUp className="h-4.5 w-4.5" />
+                </div>
+                <h2 className="font-sans text-base font-bold text-white">Statistiques simplifiées</h2>
+              </div>
+            </div>
+            
+            <div className="space-y-6">
+              <button 
+                onClick={triggerGeminiAnalysis}
+                disabled={loadingAnalysis}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 py-3 text-xs font-bold text-white transition-all shadow-md disabled:opacity-50 cursor-pointer"
+              >
+                <Sparkles className="h-4 w-4" />
+                {loadingAnalysis ? 'Analyse en cours...' : 'Générer analyse IA'}
+              </button>
+              {analysisError && <p className="text-red-400 text-xs text-center">{analysisError}</p>}
+              
+              {geminiAnalysis && (
+                <div className="mt-4 p-4 bg-slate-900 border border-slate-700 rounded-xl">
+                  {formatGeminiText(geminiAnalysis)}
+                </div>
+              )}
+              
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-2">
+                  <span className="font-bold">{homeTeam.name} (55%)</span>
+                  <span className="font-bold">{awayTeam.name} (45%)</span>
+                </div>
+                <div className="flex h-3 w-full rounded-full bg-slate-900 border border-slate-800 overflow-hidden">
+                  <div className="h-full bg-emerald-500" style={{ width: '55%' }} />
+                  <div className="h-full bg-indigo-500" style={{ width: '45%' }} />
+                </div>
+                <div className="text-center text-[10px] text-slate-500 mt-1 uppercase font-bold">Possession</div>
+              </div>
+              
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-2">
+                  <span className="font-bold">{homeTeam.name} (6)</span>
+                  <span className="font-bold">{awayTeam.name} (3)</span>
+                </div>
+                <div className="flex h-3 w-full rounded-full bg-slate-900 border border-slate-800 overflow-hidden">
+                  <div className="h-full bg-emerald-500" style={{ width: '66%' }} />
+                  <div className="h-full bg-indigo-500" style={{ width: '33%' }} />
+                </div>
+                <div className="text-center text-[10px] text-slate-500 mt-1 uppercase font-bold">Tirs cadrés</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ==============================================
             SECTION 1: FORME RÉCENTE
             ============================================== */}

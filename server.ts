@@ -40,7 +40,7 @@ if (FOOTBALL_DATA_TOKEN) {
 
 const MATCHES_CACHE_FILE = path.join(process.cwd(), "cache-wc-matches.json");
 const STANDINGS_CACHE_FILE = path.join(process.cwd(), "cache-wc-standings.json");
-const FOOTBALL_CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours
+const FOOTBALL_CACHE_TTL_MS = 60 * 1000; // 1 minute pour du temps réel
 
 let apiRequestTimestamps: number[] = [];
 
@@ -113,7 +113,7 @@ function generateFallbackMatches(): any {
         group: "GROUP_A",
         homeTeam: { id: 771, name: "USA", shortName: "USA", tla: "USA", crest: "https://crests.football-data.org/771.svg" },
         awayTeam: { id: 1841, name: "Canada", shortName: "Canada", tla: "CAN", crest: "https://crests.football-data.org/1841.svg" },
-        score: { duration: "REGULAR", fullTime: { home: 2, away: 1 } }
+        score: { duration: "REGULAR", fullTime: { home: 4, away: 2 } }
       },
       {
         id: 202602,
@@ -123,7 +123,7 @@ function generateFallbackMatches(): any {
         group: "GROUP_B",
         homeTeam: { id: 762, name: "Argentina", shortName: "Argentina", tla: "ARG", crest: "https://crests.football-data.org/762.svg" },
         awayTeam: { id: 1903, name: "Mexico", shortName: "Mexico", tla: "MEX", crest: "https://crests.football-data.org/1903.svg" },
-        score: { duration: "REGULAR", fullTime: { home: 3, away: 1 } }
+        score: { duration: "REGULAR", fullTime: { home: 5, away: 0 } }
       },
       {
         id: 202603,
@@ -133,7 +133,7 @@ function generateFallbackMatches(): any {
         group: "GROUP_C",
         homeTeam: { id: 773, name: "France", shortName: "France", tla: "FRA", crest: "https://crests.football-data.org/773.svg" },
         awayTeam: { id: 759, name: "Germany", shortName: "Germany", tla: "GER", crest: "https://crests.football-data.org/759.svg" },
-        score: { duration: "REGULAR", fullTime: { home: 1, away: 1 } }
+        score: { duration: "REGULAR", fullTime: { home: 3, away: 3 } }
       },
       {
         id: 202604,
@@ -143,7 +143,7 @@ function generateFallbackMatches(): any {
         group: "GROUP_D",
         homeTeam: { id: 764, name: "Brazil", shortName: "Brazil", tla: "BRA", crest: "https://crests.football-data.org/764.svg" },
         awayTeam: { id: 760, name: "Spain", shortName: "Spain", tla: "ESP", crest: "https://crests.football-data.org/760.svg" },
-        score: { duration: "REGULAR", fullTime: { home: 2, away: 2 } }
+        score: { duration: "REGULAR", fullTime: { home: 2, away: 4 } }
       },
       {
         id: 202605,
@@ -325,10 +325,20 @@ function mapFootballDataMatchToMatch(m: any, groupLookup: { [id: string]: string
   const stadiumMapped = mapStadiumForEvent(m);
 
   let statusEnum = "upcoming";
+  const now = Date.now();
+  const matchStartMs = m.utcDate ? new Date(m.utcDate).getTime() : now;
+
   if (m.status === "FINISHED") {
     statusEnum = "completed";
   } else if (m.status === "IN_PLAY" || m.status === "LIVE" || m.status === "PAUSED") {
     statusEnum = "live";
+  } else {
+    // Dynamic status determination if standard API is lacking or for static fallbacks
+    if (now >= matchStartMs && now <= matchStartMs + 110 * 60000) {
+      statusEnum = "live";
+    } else if (now > matchStartMs + 110 * 60000) {
+      statusEnum = "completed";
+    }
   }
 
   const hs = (m.score && m.score.fullTime && m.score.fullTime.home !== null) ? m.score.fullTime.home : null;
@@ -337,6 +347,23 @@ function mapFootballDataMatchToMatch(m: any, groupLookup: { [id: string]: string
 
   const dateStr = m.utcDate ? m.utcDate.split("T")[0] : '2026-06-21';
   const timeStr = m.utcDate && m.utcDate.split("T")[1] ? m.utcDate.split("T")[1].slice(0, 5) : '15:00';
+
+  let calcMinute = undefined;
+  if (statusEnum === "live") {
+    if (m.minute) {
+      calcMinute = m.minute;
+    } else if (m.utcDate) {
+      const diffMs = Date.now() - matchStartMs;
+      let min: number | string = Math.floor(diffMs / 60000);
+      if (min < 0) min = 1;
+      else if (min as number > 45 && min as number < 60) min = "45+"; // halftime pause roughly
+      else if (min as number >= 60 && min as number <= 105) min = (min as number) - 15; // second half
+      else if (min as number > 105) min = "90+"; // extra time
+      calcMinute = min;
+    } else {
+      calcMinute = 45;
+    }
+  }
 
   return {
     id: String(m.id),
@@ -348,7 +375,7 @@ function mapFootballDataMatchToMatch(m: any, groupLookup: { [id: string]: string
     group: matchGroup,
     status: statusEnum,
     score: scoreObj,
-    minute: statusEnum === "live" ? 55 : undefined
+    minute: calcMinute
   };
 }
 
@@ -797,36 +824,6 @@ app.get("/api/matches", async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// FIREBASE CLOUD FIRESTORE INITIALIZATION (SERVER SIDE)
-// ----------------------------------------------------
-import { initializeApp, getApps } from "firebase-admin/app";
-import { getFirestore, Firestore } from "firebase-admin/firestore";
-
-let firestoreDb: Firestore | null = null;
-try {
-  const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(firebaseConfigPath)) {
-    const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
-    const adminApp = getApps().length === 0
-      ? initializeApp({
-          projectId: firebaseConfig.projectId,
-        })
-      : getApps()[0];
-
-    if (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)") {
-      firestoreDb = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
-    } else {
-      firestoreDb = getFirestore(adminApp);
-    }
-    console.log(`🔥 [Firebase Admin] Server successfully connected to Firestore Database: "${firebaseConfig.firestoreDatabaseId || '(default)'}"`);
-  } else {
-    console.warn("⚠️ Warning: firebase-applet-config.json not found. Firestore Admin will run in offline local fallback mode.");
-  }
-} catch (e) {
-  console.error("🔥 [Firebase Admin] Server Firestore initialization failed, using local offline fallback:", e);
-}
-
 // Secure JSON-file based database for storage and caching of Gemini reports
 const DB_FILE = path.join(process.cwd(), "db-analysis.json");
 
@@ -854,65 +851,6 @@ function writeDb(data: { [key: string]: AnalysisRecord }) {
   } catch (err) {
     console.error("Error writing to analysis database:", err);
   }
-}
-
-async function readAnalysisFromFirestore(matchId: string): Promise<AnalysisRecord | null> {
-  if (firestoreDb) {
-    try {
-      const docSnap = await firestoreDb.collection("analyses").doc(matchId).get();
-      if (docSnap.exists) {
-        const d = docSnap.data();
-        if (d) {
-          return {
-            matchId: d.matchId || matchId,
-            analysisText: d.analysisText || "",
-            timestamp: d.createdAt ? new Date(d.createdAt).getTime() : Date.now()
-          };
-        }
-      }
-    } catch (err) {
-      console.error("🔥 [Firestore] Error reading analysis:", err);
-    }
-  }
-  return null;
-}
-
-async function writeAnalysisToFirestore(matchId: string, analysisText: string) {
-  if (firestoreDb) {
-    try {
-      await firestoreDb.collection("analyses").doc(matchId).set({
-        matchId,
-        analysisText,
-        createdAt: new Date().toISOString()
-      });
-      console.log(`🔥 [Firestore] Saved analysis cache in cloud firestore for match ${matchId}`);
-    } catch (err) {
-      console.error("🔥 [Firestore] Error writing analysis:", err);
-    }
-  }
-}
-
-async function readDbAsync(matchId: string): Promise<AnalysisRecord | null> {
-  const cloudRecord = await readAnalysisFromFirestore(matchId);
-  if (cloudRecord) {
-    return cloudRecord;
-  }
-  const dbObj = readDb();
-  if (dbObj && dbObj[matchId]) {
-    return dbObj[matchId];
-  }
-  return null;
-}
-
-async function writeDbAsync(matchId: string, analysisText: string) {
-  await writeAnalysisToFirestore(matchId, analysisText);
-  const dbObj = readDb();
-  dbObj[matchId] = {
-    matchId,
-    analysisText,
-    timestamp: Date.now()
-  };
-  writeDb(dbObj);
 }
 
 // Weather fetcher with OpenWeather API
@@ -987,8 +925,8 @@ async function getMatchDataMerged(matchId: string) {
       awayWins: 3,
       draws: 2,
       lastMatches: [
-        { date: "12/11/2024", score: `${homeTeamMapped.name} 2 - 1 ${awayTeamMapped.name}`, winner: homeTeamMapped.name },
-        { date: "05/09/2021", score: `${homeTeamMapped.name} 1 - 1 ${awayTeamMapped.name}`, winner: "Nul" }
+        { date: "12/11/2024", score: `${homeTeamMapped.name} 3 - 2 ${awayTeamMapped.name}`, winner: homeTeamMapped.name },
+        { date: "05/09/2021", score: `${homeTeamMapped.name} 0 - 4 ${awayTeamMapped.name}`, winner: awayTeamMapped.name }
       ]
     },
     weather: {
@@ -1160,7 +1098,7 @@ Du côté de l'équipe de **${matchData.matchInfo?.awayTeam?.name ?? 'Extérieur
 - **Confrontations directes** : L'historique d'affrontements penche vers un équilibre parfait avec **${matchData.h2h?.homeWins ?? 5}** victoires à domicile, **${matchData.h2h?.draws ?? 3}** partages des points et **${matchData.h2h?.awayWins ?? 6}** victoires pour l'extérieur.
 
 ### 4. Scénario probable du match et score estimé
-Le scénario le plus crédible pointe vers une bataille acharnée au milieu de terrain. Nous prévoyons une rencontre très tactique où les dispositifs s'annuleront au fil des minutes. Une fourchette de score réaliste s'établit entre un match nul de haute volée (1-1 ou 2-2) et une victoire sur le fil 2-1 pour l'équipe qui contrôlera le tempo du match. Notre indice de probabilité MatchIQ :
+Le scénario le plus crédible pointe vers une bataille acharnée au milieu de terrain. Nous prévoyons une rencontre très tactique où les dispositifs s'annuleront au fil des minutes. Une fourchette de score réaliste s'établit entre ${(Math.random() > 0.5 ? '2-0' : '3-1')} et une surprise potentielle sur le score de ${(Math.random() > 0.5 ? '3-2' : '0-2')} pour l'équipe qui contrôlera le tempo du match. Notre indice de probabilité MatchIQ :
 - Victoire de **${matchData.matchInfo?.homeTeam?.name ?? 'Domicile'}** : **${matchData.prediction?.homeWinPct ?? 40}%**
 - Match Nul : **${matchData.prediction?.drawPct ?? 35}%**
 - Victoire de **${matchData.matchInfo?.awayTeam?.name ?? 'Extérieur'}** : **${matchData.prediction?.awayWinPct ?? 25}%**
@@ -1188,7 +1126,7 @@ Cette analyse est générée à des fins informatives et ne constitue pas un con
           "1. Contexte et enjeux du match (2-3 phrases)\n" +
           "2. Forces et faiblesses de chaque équipe basées sur leur forme récente et leurs joueurs clés disponibles\n" +
           "3. Facteurs déterminants : impact de la météo, des blessures/absences, et de l'historique des confrontations\n" +
-          "4. Scénario probable du match avec un score le plus probable (fourchette, pas un chiffre exact) et la probabilité approximative de victoire de chaque équipe en pourcentage\n\n" +
+          "4. Scénario probable du match avec un score le plus probable (fourchette, pas un chiffre exact) et la probabilité approximative de victoire de chaque équipe en pourcentage. Base-toi uniquement sur les statistiques fournies, n'invente pas de scores de manière fantaisiste.\n\n" +
           "Ton : expert mais accessible, jamais condescendant. Pas de jargon tactique excessif. Termine TOUJOURS par exactement la phrase suivante, sans aucun emoji ni texte additionnel après :\n" +
           "'Cette analyse est générée à des fins informatives et ne constitue pas un conseil de pari.'"
       }
@@ -1235,8 +1173,9 @@ app.get("/api/gemini-analysis/:matchId", async (req, res) => {
     const { matchId } = req.params;
     const now = Date.now();
 
-    // 1. Read from our secure persistent JSON database or Firestore
-    const cachedRecord = await readDbAsync(matchId);
+    // 1. Read from our secure persistent JSON database
+    const db = readDb();
+    const cachedRecord = db[matchId];
     if (cachedRecord && (now - cachedRecord.timestamp < 60 * 60 * 1000)) {
       console.log(`[AI Database DB Cache] Serving saved report from database for ${matchId}`);
       return res.json({ analysis: cachedRecord.analysisText, cached: true });
@@ -1253,10 +1192,15 @@ app.get("/api/gemini-analysis/:matchId", async (req, res) => {
     console.log(`[Gemini Engine] Querying gemini-3.5-flash with custom football analyst persona...`);
     const analysisText = await generateGeminiAnalysis(matchId, matchData);
 
-    // 4. Save to our database (either Firestore or local JSON offline file)
-    await writeDbAsync(matchId, analysisText);
+    // 4. Save to our local database JSON file
+    db[matchId] = {
+      matchId,
+      analysisText,
+      timestamp: now
+    };
+    writeDb(db);
 
-    console.log(`[AI Database DB Cache] Success: Generated and stored Gemini analysis in cloud database for ${matchId}.`);
+    console.log(`[AI Database DB Cache] Success: Generated and stored Gemini analysis in local database for ${matchId}.`);
     return res.json({ analysis: analysisText, cached: false });
   } catch (err: any) {
     console.error(`Error in /api/gemini-analysis/${req.params.matchId}:`, err);
@@ -1328,124 +1272,6 @@ function saveHistoryToFile(history: HistoryItem[]) {
 }
 
 // ----------------------------------------------------
-// FIRESTORE DUAL SYNCHRONIZED STORAGE LAYERS
-// ----------------------------------------------------
-
-async function loadFavoritesFromFirestore(): Promise<FavoriteItem[]> {
-  if (firestoreDb) {
-    try {
-      const querySnapshot = await firestoreDb.collection("favorites").get();
-      const list: FavoriteItem[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({
-          userId: data.userId || "",
-          matchId: data.matchId || ""
-        });
-      });
-      if (list.length > 0) return list;
-    } catch (err) {
-      console.error("🔥 [Firestore] Error loading favorites:", err);
-    }
-  }
-  return [];
-}
-
-async function saveFavoriteToFirestore(userId: string, matchId: string, isFav: boolean) {
-  if (firestoreDb) {
-    try {
-      const docId = `${userId}_${matchId}`;
-      const docRef = firestoreDb.collection("favorites").doc(docId);
-      if (isFav) {
-        await docRef.set({
-          userId,
-          matchId,
-          createdAt: new Date().toISOString()
-        });
-      } else {
-        await docRef.delete();
-      }
-    } catch (err) {
-      console.error("🔥 [Firestore] Error saving favorite:", err);
-    }
-  }
-}
-
-async function loadFavoritesAsync(): Promise<FavoriteItem[]> {
-  const fsFavs = await loadFavoritesFromFirestore();
-  if (fsFavs.length > 0) {
-    return fsFavs;
-  }
-  return loadFavoritesFromFile();
-}
-
-async function saveFavoritesAsync(favs: FavoriteItem[], userId: string, matchId: string, isFav: boolean) {
-  saveFavoritesToFile(favs);
-  await saveFavoriteToFirestore(userId, matchId, isFav);
-}
-
-async function loadHistoryFromFirestore(): Promise<HistoryItem[]> {
-  if (firestoreDb) {
-    try {
-      const querySnapshot = await firestoreDb.collection("history").get();
-      const list: HistoryItem[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({
-          userId: data.userId || "",
-          matchId: data.matchId || "",
-          homeTeam: data.homeTeam || "",
-          awayTeam: data.awayTeam || "",
-          homeFlag: data.homeFlag || "",
-          awayFlag: data.awayFlag || "",
-          winner: data.winner || "",
-          score: data.score || "",
-          timestamp: data.createdAt ? new Date(data.createdAt).getTime() : Date.now()
-        });
-      });
-      if (list.length > 0) return list;
-    } catch (err) {
-      console.error("🔥 [Firestore] Error loading history:", err);
-    }
-  }
-  return [];
-}
-
-async function saveHistoryItemToFirestore(item: HistoryItem) {
-  if (firestoreDb) {
-    try {
-      const docId = `${item.userId}_${item.matchId}_${item.timestamp}`;
-      await firestoreDb.collection("history").doc(docId).set({
-        userId: item.userId,
-        matchId: item.matchId,
-        homeTeam: item.homeTeam,
-        awayTeam: item.awayTeam,
-        homeFlag: item.homeFlag,
-        awayFlag: item.awayFlag,
-        winner: item.winner,
-        score: item.score,
-        createdAt: new Date(item.timestamp).toISOString()
-      });
-    } catch (err) {
-      console.error("🔥 [Firestore] Error saving history item:", err);
-    }
-  }
-}
-
-async function loadHistoryAsync(): Promise<HistoryItem[]> {
-  const fsHistory = await loadHistoryFromFirestore();
-  if (fsHistory.length > 0) {
-    return fsHistory;
-  }
-  return loadHistoryFromFile();
-}
-
-async function saveHistoryAsync(historyList: HistoryItem[], newItem: HistoryItem) {
-  saveHistoryToFile(historyList);
-  await saveHistoryItemToFirestore(newItem);
-}
-
-// ----------------------------------------------------
 // USERS DATABASE MODULE (Supabase users table mirror)
 // ----------------------------------------------------
 const USERS_FILE = path.join(process.cwd(), "db-users.json");
@@ -1477,77 +1303,8 @@ function saveUsersToFile(users: UserItem[]) {
   }
 }
 
-async function loadUsersFromFirestore(): Promise<UserItem[]> {
-  if (firestoreDb) {
-    try {
-      const querySnapshot = await firestoreDb.collection("users").get();
-      const list: UserItem[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({
-          id: doc.id,
-          email: data.email || "",
-          role: data.role || "user",
-          created_at: data.createdAt || new Date().toISOString()
-        });
-      });
-      if (list.length > 0) return list;
-    } catch (err) {
-      console.error("🔥 [Firestore] Error loading users:", err);
-    }
-  }
-  return [];
-}
-
-async function saveUserToFirestore(user: UserItem) {
-  if (firestoreDb) {
-    try {
-      await firestoreDb.collection("users").doc(user.id).set({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        createdAt: user.created_at || new Date().toISOString()
-      });
-    } catch (err) {
-      console.error("🔥 [Firestore] Error saving user:", err);
-    }
-  }
-}
-
-async function loadUsersAsync(): Promise<UserItem[]> {
-  const firestoreUsers = await loadUsersFromFirestore();
-  const localUsers = loadUsersFromFile();
-  
-  // Reconcile - merge so that we have both collections unified
-  const mergedMap = new Map<string, UserItem>();
-  localUsers.forEach(u => mergedMap.set(u.email, u));
-  firestoreUsers.forEach(u => mergedMap.set(u.email, u));
-  const mergedList = Array.from(mergedMap.values());
-  
-  if (firestoreDb && firestoreUsers.length < localUsers.length) {
-    for (const u of localUsers) {
-      await saveUserToFirestore(u);
-    }
-  }
-  
-  return mergedList;
-}
-
-async function saveUsersAsync(users: UserItem[], targetUser?: UserItem) {
-  saveUsersToFile(users);
-  if (targetUser) {
-    await saveUserToFirestore(targetUser);
-  } else {
-    if (firestoreDb) {
-      for (const u of users) {
-        await saveUserToFirestore(u);
-      }
-    }
-  }
-}
-
-// Fetch or create user profile to mirror Supabase/Firestore roles
-app.get("/api/user/profile", async (req, res) => {
+// Fetch or create user profile to mirror Supabase roles
+app.get("/api/user/profile", (req, res) => {
   try {
     const userId = (req.query.userId || "").toString();
     const email = (req.query.email || "").toString().trim().toLowerCase();
@@ -1556,7 +1313,7 @@ app.get("/api/user/profile", async (req, res) => {
       return res.status(400).json({ error: "Either userId or email is required" });
     }
 
-    const users = await loadUsersAsync();
+    const users = loadUsersFromFile();
     let user: UserItem | undefined;
 
     if (email) {
@@ -1576,9 +1333,9 @@ app.get("/api/user/profile", async (req, res) => {
         created_at: new Date().toISOString()
       };
       users.push(newUser);
-      await saveUsersAsync(users, newUser);
+      saveUsersToFile(users);
       user = newUser;
-      console.log(`[Users DB] Created new signup user in Firestore: ${user.email} with default role: ${user.role}`);
+      console.log(`[Users DB] Created new signup user: ${user.email} with default role: ${user.role}`);
     }
 
     return res.json({ user });
@@ -1589,7 +1346,7 @@ app.get("/api/user/profile", async (req, res) => {
 });
 
 // User login / identification endpoint
-app.post("/api/user/login", async (req, res) => {
+app.post("/api/user/login", (req, res) => {
   try {
     const email = (req.body.email || "").toString().trim().toLowerCase();
     const userId = (req.body.userId || "").toString();
@@ -1598,10 +1355,11 @@ app.post("/api/user/login", async (req, res) => {
       return res.status(400).json({ error: "Email is required" });
     }
 
-    const users = await loadUsersAsync();
+    const users = loadUsersFromFile();
     let user = users.find(u => u.email === email);
 
     if (user) {
+      // If client supplied a different userId, we can update or keep it
       console.log(`[Users DB] Found existing user: ${user.email} (Role: ${user.role})`);
     } else {
       // Create new user (Default to "user" role for all new signups)
@@ -1613,8 +1371,8 @@ app.post("/api/user/login", async (req, res) => {
         created_at: new Date().toISOString()
       };
       users.push(user);
-      await saveUsersAsync(users, user);
-      console.log(`[Users DB] Registered new signup in Firestore: ${user.email} (Role: ${user.role})`);
+      saveUsersToFile(users);
+      console.log(`[Users DB] Registered new signup: ${user.email} (Role: ${user.role})`);
     }
 
     return res.json({ success: true, user });
@@ -1624,8 +1382,8 @@ app.post("/api/user/login", async (req, res) => {
   }
 });
 
-// Admin promotion API simulation (performs role changes on the db-users table and Firestore)
-app.post("/api/user/promote", async (req, res) => {
+// Admin promotion API simulation (performs role changes on the db-users table)
+app.post("/api/user/promote", (req, res) => {
   try {
     const email = (req.body.email || "").toString().trim().toLowerCase();
     const role = (req.body.role || "user").toString();
@@ -1637,7 +1395,7 @@ app.post("/api/user/promote", async (req, res) => {
       return res.status(400).json({ error: "Invalid role. Must be 'user' or 'admin'" });
     }
 
-    const users = await loadUsersAsync();
+    const users = loadUsersFromFile();
     let user = users.find(u => u.email === email);
 
     if (!user) {
@@ -1653,8 +1411,8 @@ app.post("/api/user/promote", async (req, res) => {
       user.role = role as "user" | "admin";
     }
 
-    await saveUsersAsync(users, user);
-    console.log(`[Admin Role Change] Manually set role of ${email} to ${role} in Firestore`);
+    saveUsersToFile(users);
+    console.log(`[Admin Role Change] Manually set role of ${email} to ${role}`);
     return res.json({ success: true, user });
   } catch (err) {
     console.error("Error in POST /api/user/promote:", err);
@@ -1663,13 +1421,13 @@ app.post("/api/user/promote", async (req, res) => {
 });
 
 // 1. Get favorite match IDs of an active user session
-app.get("/api/favorites", async (req, res) => {
+app.get("/api/favorites", (req, res) => {
   try {
     const userId = (req.query.userId || "").toString();
     if (!userId) {
       return res.status(400).json({ error: "userId query parameter is required" });
     }
-    const allFavs = await loadFavoritesAsync();
+    const allFavs = loadFavoritesFromFile();
     const userFavIds = allFavs
       .filter(item => item.userId === userId)
       .map(item => item.matchId);
@@ -1682,14 +1440,14 @@ app.get("/api/favorites", async (req, res) => {
 });
 
 // 2. Toggle or set favorite state for a specific match and user
-app.post("/api/favorites", async (req, res) => {
+app.post("/api/favorites", (req, res) => {
   try {
     const { userId, matchId, isFavorite } = req.body;
     if (!userId || !matchId) {
       return res.status(400).json({ error: "userId and matchId are required in body" });
     }
 
-    let allFavs = await loadFavoritesAsync();
+    let allFavs = loadFavoritesFromFile();
     
     // Remove if exists
     allFavs = allFavs.filter(item => !(item.userId === userId && item.matchId === matchId));
@@ -1699,7 +1457,7 @@ app.post("/api/favorites", async (req, res) => {
       allFavs.push({ userId, matchId });
     }
 
-    await saveFavoritesAsync(allFavs, userId, matchId, isFavorite);
+    saveFavoritesToFile(allFavs);
 
     const userFavIds = allFavs
       .filter(item => item.userId === userId)
@@ -1713,13 +1471,13 @@ app.post("/api/favorites", async (req, res) => {
 });
 
 // 3. Get view prediction analysis history of user
-app.get("/api/history", async (req, res) => {
+app.get("/api/history", (req, res) => {
   try {
     const userId = (req.query.userId || "").toString();
     if (!userId) {
       return res.status(400).json({ error: "userId query parameter is required" });
     }
-    const allHistory = await loadHistoryAsync();
+    const allHistory = loadHistoryFromFile();
     const userHistory = allHistory
       .filter(item => item.userId === userId)
       .sort((a, b) => b.timestamp - a.timestamp); // Sort by newest first
@@ -1732,14 +1490,14 @@ app.get("/api/history", async (req, res) => {
 });
 
 // 4. Save a prediction view entry
-app.post("/api/history", async (req, res) => {
+app.post("/api/history", (req, res) => {
   try {
     const { userId, matchId, homeTeam, awayTeam, homeFlag, awayFlag, winner, score } = req.body;
     if (!userId || !matchId) {
       return res.status(400).json({ error: "userId and matchId are required inside body" });
     }
 
-    const allHistory = await loadHistoryAsync();
+    const allHistory = loadHistoryFromFile();
     
     // Check if we already registered this match ID within the past minute to avoid double submissions
     const now = Date.now();
@@ -1762,7 +1520,7 @@ app.post("/api/history", async (req, res) => {
         timestamp: now
       };
       allHistory.push(newItem);
-      await saveHistoryAsync(allHistory, newItem);
+      saveHistoryToFile(allHistory);
     }
 
     return res.json({ success: true });

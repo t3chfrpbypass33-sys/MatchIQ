@@ -10,16 +10,48 @@ import {
   ChevronDown, ChevronUp, Clock, History
 } from 'lucide-react';
 import Navigation from './components/Navigation';
+import AdminDashboard from './components/AdminDashboard';
+import BottomNav from './components/BottomNav';
 import MatchCard from './components/MatchCard';
 import MatchDetail from './components/MatchDetail';
+import MatchAnalysisModal from './components/MatchAnalysisModal';
 import Pricing from './components/Pricing';
 import PredictionHistory from './components/PredictionHistory';
 import { Match } from './types';
 import { getOrCreateUserId } from './utils/freemiumTracker';
+import { auth, googleProvider } from './lib/firebase';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   const [allMatches, setAllMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [user, setUser] = useState<any>(null);
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  
+  // Real-time clock tick
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Sync with backend on login
+        await fetch('/api/user/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentUser.email, userId: currentUser.uid })
+        });
+        setUserEmail(currentUser.email || '');
+      } else {
+        setUserEmail('');
+        setUserRole('user');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     async function loadMatches() {
@@ -27,7 +59,25 @@ export default function App() {
         const res = await fetch('/api/matches');
         if (res.ok) {
           const data = await res.json();
-          setAllMatches(data);
+          const adjustedData = data.map((match: Match) => {
+            if (match.time) {
+              const [hours, minutes] = match.time.split(':').map(Number);
+              const newHours = (hours + 1) % 24;
+              let adjustedDate = match.date;
+              if (hours + 1 >= 24) {
+                 const d = new Date(match.date);
+                 d.setDate(d.getDate() + 1);
+                 const y = d.getFullYear();
+                 const m = String(d.getMonth() + 1).padStart(2, '0');
+                 const day = String(d.getDate()).padStart(2, '0');
+                 adjustedDate = `${y}-${m}-${day}`;
+              }
+              const newTimeStr = `${String(newHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+              return { ...match, time: newTimeStr, date: adjustedDate };
+            }
+            return match;
+          });
+          setAllMatches(adjustedData);
         }
       } catch (err) {
         console.error("Failed to fetch matches:", err);
@@ -35,7 +85,12 @@ export default function App() {
         setLoading(false);
       }
     }
+
     loadMatches();
+    
+    // Polling every 5 seconds for real-time match status updates
+    const interval = setInterval(loadMatches, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // User Profile, Account management & Admin role states
@@ -72,46 +127,11 @@ export default function App() {
     fetchUserProfile();
   }, [userEmail]);
 
-  // Handle manual login/logout from Navigation header
-  const handleLogin = async (email: string) => {
-    try {
-      const res = await fetch('/api/user/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, userId })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user) {
-          setUserEmail(data.user.email);
-          setUserRole(data.user.role);
-          localStorage.setItem('matchiq_user_email', data.user.email);
-          if (data.user.id) {
-            localStorage.setItem('matchiq_user_id', data.user.id);
-            setUserId(data.user.id);
-          }
-          return true;
-        }
-      }
-    } catch (err) {
-      console.error("Login verification failed:", err);
-    }
-    return false;
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('matchiq_user_email');
-    // Revert to default anonymous guest ID
-    const newGuestId = 'usr_' + Math.random().toString(36).substring(2, 11);
-    localStorage.setItem('matchiq_user_id', newGuestId);
-    setUserId(newGuestId);
-    setUserEmail('');
-    setUserRole('user');
-  };
-
   // Navigation / Routing state
-  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'pricing' | 'history'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'pricing' | 'history' | 'live'>('all');
+  const [showAdmin, setShowAdmin] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [analysisMatchId, setAnalysisMatchId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   
   // Dashboard collapsible section states - true means collapsed (repliée)
@@ -243,11 +263,13 @@ export default function App() {
 
   // Filter logic
   const filteredMatches = allMatches.filter(match => {
-    // 1. Tab filter (Today's matches vs All matches) synchronized with the current system date
+    // 1. Tab filter (Today's matches vs All matches vs Live matches) synchronized with the current system date
     if (activeTab === 'today') {
       const todayStr = getLocalDateString(0);
       const isTodayMatch = match.date === todayStr || match.status === 'live';
       if (!isTodayMatch) return false;
+    } else if (activeTab === 'live') {
+      if (match.status !== 'live') return false;
     }
 
     // 2. Group Filter
@@ -344,7 +366,7 @@ export default function App() {
 
         {/* Section Grid Content */}
         {!isCollapsed && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 transition-opacity duration-300">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 transition-opacity duration-300">
             {matchesList.map((match) => (
               <MatchCard
                 key={match.id}
@@ -352,6 +374,7 @@ export default function App() {
                 onSelect={handleSelectMatch}
                 isFavorite={favorites.includes(match.id)}
                 onToggleFavorite={handleToggleFavorite}
+                onShowAnalysis={(id) => setAnalysisMatchId(id)}
               />
             ))}
           </div>
@@ -368,6 +391,7 @@ export default function App() {
         activeTab={activeTab} 
         onChangeTab={(tab) => {
           setActiveTab(tab);
+          setShowAdmin(false);
           if (tab === 'pricing') {
             window.location.hash = '#pricing';
           } else if (tab === 'history') {
@@ -380,12 +404,31 @@ export default function App() {
         onGoHome={handleBackToHome}
         userEmail={userEmail}
         userRole={userRole}
-        onLogin={handleLogin}
-        onLogout={handleLogout}
+        onShowAdmin={() => {
+          setShowAdmin(true);
+          setActiveTab('all');
+        }}
+      />
+
+      <BottomNav 
+        activeTab={activeTab}
+        onChangeTab={(tab) => {
+          setActiveTab(tab);
+          if (tab === 'pricing') {
+            window.location.hash = '#pricing';
+          } else if (tab === 'history') {
+            window.location.hash = '#historique';
+          } else {
+            window.location.hash = '';
+            setSelectedMatchId(null);
+          }
+        }}
       />
 
       {/* Dynamic Main Body */}
-      {activeTab === 'pricing' ? (
+      {showAdmin ? (
+        <AdminDashboard onBack={() => setShowAdmin(false)} />
+      ) : activeTab === 'pricing' ? (
         <Pricing onBack={handleBackToHome} />
       ) : activeTab === 'history' ? (
         <PredictionHistory 
@@ -432,6 +475,12 @@ export default function App() {
 
               {/* Live Count Widget */}
               <div className="flex flex-wrap gap-3 shrink-0">
+                <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl min-w-[110px] text-center flex flex-col justify-center items-center">
+                  <span className="text-[10px] flex items-center gap-1 font-mono tracking-wider text-slate-400 block mb-1"><Clock className="w-3 h-3 text-indigo-400" /> HEURE LOCALE</span>
+                  <span className="text-xl font-bold tracking-tight text-white font-mono block leading-none">
+                    {currentTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                </div>
                 <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl min-w-[110px] text-center">
                   <span className="text-[10px] font-mono tracking-wider uppercase text-slate-500 block">EN COURS</span>
                   <span className="text-2xl font-black text-rose-500 font-mono mt-0.5 block leading-none">
@@ -530,7 +579,7 @@ export default function App() {
                       Mes Matchs Favoris ({favoriteMatches.length})
                     </h3>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {favoriteMatches.map((match) => (
                       <MatchCard
                         key={`fav-${match.id}`}
@@ -647,6 +696,13 @@ export default function App() {
           </p>
         </div>
       </footer>
+
+      {analysisMatchId && (
+        <MatchAnalysisModal
+          matchId={analysisMatchId}
+          onClose={() => setAnalysisMatchId(null)}
+        />
+      )}
 
     </div>
   );

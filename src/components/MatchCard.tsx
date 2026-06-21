@@ -12,9 +12,10 @@ interface MatchCardProps {
   onSelect: (matchId: string) => void;
   isFavorite: boolean;
   onToggleFavorite: (matchId: string, event: React.MouseEvent) => void;
+  onShowAnalysis?: (matchId: string, event: React.MouseEvent) => void;
 }
 
-export default function MatchCard({ match, onSelect, isFavorite, onToggleFavorite }: MatchCardProps) {
+export default function MatchCard({ match, onSelect, isFavorite, onToggleFavorite, onShowAnalysis }: MatchCardProps) {
   const { id, homeTeam, awayTeam, date, time, stadium, status, score, minute, group } = match;
 
   // Formatting date for reader (e.g. Saturday, June 20)
@@ -185,16 +186,30 @@ export default function MatchCard({ match, onSelect, isFavorite, onToggleFavorit
 
       {/* Stadium Location Footer */}
       <div className="mt-4 flex items-center justify-between border-t border-slate-800/60 pt-3 text-xs text-slate-400 group-hover:text-slate-300">
-        <div className="flex items-center gap-1.5 truncate max-w-[85%]">
+        <div className="flex items-center gap-1.5 truncate max-w-[65%]">
           <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-500 group-hover:text-emerald-400 transition-colors" />
           <span className="font-sans truncate text-[11px] tracking-wide font-medium">
             {stadium.name}, {stadium.city} ({stadium.country})
           </span>
         </div>
         
-        <div className="flex items-center gap-0.5 font-semibold text-[10px] text-emerald-400 font-mono tracking-wider opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
-          <span>ANALYSER</span>
-          <ChevronRight className="h-3 w-3" />
+        <div className="flex items-center gap-2">
+          {onShowAnalysis && (status === 'live' || status === 'upcoming') && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowAnalysis(id, e);
+              }}
+              className="flex items-center gap-1 rounded bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 px-2 py-1 text-[10px] font-bold text-indigo-300 transition-colors z-10"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              IA
+            </button>
+          )}
+          <div className="flex items-center gap-0.5 font-semibold text-[10px] text-emerald-400 font-mono tracking-wider opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0 hidden sm:flex">
+            <span>DÉTAIL</span>
+            <ChevronRight className="h-3 w-3" />
+          </div>
         </div>
       </div>
       
