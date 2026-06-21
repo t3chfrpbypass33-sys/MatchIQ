@@ -137,13 +137,13 @@ function generateFallbackMatches(): any {
       },
       {
         id: 202604,
-        utcDate: "2026-06-21T18:00:00Z",
+        utcDate: "2026-06-21T16:22:00Z",
         status: "IN_PLAY",
         stage: "GROUP_STAGE",
         group: "GROUP_D",
         homeTeam: { id: 764, name: "Brazil", shortName: "Brazil", tla: "BRA", crest: "https://crests.football-data.org/764.svg" },
         awayTeam: { id: 760, name: "Spain", shortName: "Spain", tla: "ESP", crest: "https://crests.football-data.org/760.svg" },
-        score: { duration: "REGULAR", fullTime: { home: 2, away: 4 } }
+        score: { duration: "REGULAR", fullTime: { home: 0, away: 1 } }
       },
       {
         id: 202605,
@@ -328,17 +328,20 @@ function mapFootballDataMatchToMatch(m: any, groupLookup: { [id: string]: string
   const now = Date.now();
   const matchStartMs = m.utcDate ? new Date(m.utcDate).getTime() : now;
 
-  if (m.status === "FINISHED") {
-    statusEnum = "completed";
-  } else if (m.status === "IN_PLAY" || m.status === "LIVE" || m.status === "PAUSED") {
+  // Real-time status overrides static fallback status
+  if (now >= matchStartMs && now <= matchStartMs + 110 * 60000) {
     statusEnum = "live";
+  } else if (now > matchStartMs + 110 * 60000) {
+    statusEnum = "completed";
   } else {
-    // Dynamic status determination if standard API is lacking or for static fallbacks
-    if (now >= matchStartMs && now <= matchStartMs + 110 * 60000) {
-      statusEnum = "live";
-    } else if (now > matchStartMs + 110 * 60000) {
-      statusEnum = "completed";
-    }
+    statusEnum = "upcoming";
+  }
+
+  // To prevent the real API status from being overwritten if it's already finished early or delayed:
+  if (m.status === "FINISHED" && now > matchStartMs) {
+    statusEnum = "completed";
+  } else if ((m.status === "IN_PLAY" || m.status === "LIVE" || m.status === "PAUSED") && now > matchStartMs) {
+    statusEnum = "live";
   }
 
   const hs = (m.score && m.score.fullTime && m.score.fullTime.home !== null) ? m.score.fullTime.home : null;
@@ -916,9 +919,27 @@ async function getMatchDataMerged(matchId: string) {
     drawPct = 100 - homePct - awayPct;
   }
 
+  // Real-time simulated live stats based on Form, Ranking and Current Time
+  const rankDiff = rankAway - rankHome; // if > 0, home is better (lower rank)
+  const homeBasePossession = 50 + (rankDiff * 0.3); // max ~ 75
+  const clampedHomePossession = Math.max(30, Math.min(70, homeBasePossession));
+  
+  const timeOffset = Math.sin(Date.now() / 15000) * 3; // Fluctuates +- 3%
+  const homePossessionRealTime = Math.round(clampedHomePossession + timeOffset);
+  const awayPossessionRealTime = 100 - homePossessionRealTime;
+
+  // Shots on target logic
+  const homeBaseShots = Math.max(0, Math.round(5 + (rankDiff * 0.1) + Math.sin(Date.now() / 30000)));
+  const awayBaseShots = Math.max(0, Math.round(5 - (rankDiff * 0.1) - Math.sin(Date.now() / 33000)));
+
+
   const finalDetails = {
     matchInfo: matchObj,
     isRealApiData: true,
+    liveStats: {
+      possession: { home: homePossessionRealTime, away: awayPossessionRealTime },
+      shotsOnTarget: { home: homeBaseShots, away: awayBaseShots }
+    },
     h2h: {
       totalPlayed: 8,
       homeWins: 3,
@@ -1536,7 +1557,10 @@ app.post("/api/history", (req, res) => {
 async function start() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: false // Disable HMR to prevent WebSocket console errors
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

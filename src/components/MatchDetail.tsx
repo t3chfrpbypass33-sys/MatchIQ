@@ -62,7 +62,7 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
   const [apiData, setApiData] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState<boolean>(true);
   const [geminiAnalysis, setGeminiAnalysis] = useState<string>('');
-  const [loadingAnalysis, setLoadingAnalysis] = useState<boolean>(true);
+  const [loadingAnalysis, setLoadingAnalysis] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string>('');
 
   const [viewedCount, setViewedCount] = useState<number>(0);
@@ -122,9 +122,12 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
   }, [geminiAnalysis, id, homeTeam, awayTeam, apiData]);
 
   useEffect(() => {
-    async function loadStats() {
+    let isFetching = false;
+    async function loadStats(isInitial = false) {
+      if (isFetching) return;
+      isFetching = true;
       try {
-        setLoadingStats(true);
+        if (isInitial) setLoadingStats(true);
         const res = await fetch(`/api/match-data/${id}`);
         if (res.ok) {
           const detail = await res.json();
@@ -133,12 +136,16 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
       } catch (err) {
         console.error("Failed to fetch match details from Express proxy:", err);
       } finally {
-        setLoadingStats(false);
+        if (isInitial) setLoadingStats(false);
+        isFetching = false;
       }
     }
 
-    loadStats();
-    // loadGeminiAnalysis(); // Removed automatic fetch
+    loadStats(true);
+    
+    // Set up polling interval every 5 seconds for live matches
+    const interval = setInterval(() => loadStats(false), 5000);
+    return () => clearInterval(interval);
   }, [id]);
 
   async function triggerGeminiAnalysis() {
@@ -524,24 +531,24 @@ export default function MatchDetail({ match, onBack, isFavorite, onToggleFavorit
               
               <div>
                 <div className="flex justify-between text-xs text-slate-400 mb-2">
-                  <span className="font-bold">{homeTeam.name} (55%)</span>
-                  <span className="font-bold">{awayTeam.name} (45%)</span>
+                  <span className="font-bold">{homeTeam.name} ({apiData?.liveStats?.possession?.home || 55}%)</span>
+                  <span className="font-bold">{awayTeam.name} ({apiData?.liveStats?.possession?.away || 45}%)</span>
                 </div>
                 <div className="flex h-3 w-full rounded-full bg-slate-900 border border-slate-800 overflow-hidden">
-                  <div className="h-full bg-emerald-500" style={{ width: '55%' }} />
-                  <div className="h-full bg-indigo-500" style={{ width: '45%' }} />
+                  <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${apiData?.liveStats?.possession?.home || 55}%` }} />
+                  <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${apiData?.liveStats?.possession?.away || 45}%` }} />
                 </div>
                 <div className="text-center text-[10px] text-slate-500 mt-1 uppercase font-bold">Possession</div>
               </div>
               
               <div>
                 <div className="flex justify-between text-xs text-slate-400 mb-2">
-                  <span className="font-bold">{homeTeam.name} (6)</span>
-                  <span className="font-bold">{awayTeam.name} (3)</span>
+                  <span className="font-bold">{homeTeam.name} ({apiData?.liveStats?.shotsOnTarget?.home || 6})</span>
+                  <span className="font-bold">{awayTeam.name} ({apiData?.liveStats?.shotsOnTarget?.away || 3})</span>
                 </div>
                 <div className="flex h-3 w-full rounded-full bg-slate-900 border border-slate-800 overflow-hidden">
-                  <div className="h-full bg-emerald-500" style={{ width: '66%' }} />
-                  <div className="h-full bg-indigo-500" style={{ width: '33%' }} />
+                  <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${((apiData?.liveStats?.shotsOnTarget?.home || 6) / ((apiData?.liveStats?.shotsOnTarget?.home || 6) + (apiData?.liveStats?.shotsOnTarget?.away || 3) || 1)) * 100}%` }} />
+                  <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${((apiData?.liveStats?.shotsOnTarget?.away || 3) / ((apiData?.liveStats?.shotsOnTarget?.home || 6) + (apiData?.liveStats?.shotsOnTarget?.away || 3) || 1)) * 100}%` }} />
                 </div>
                 <div className="text-center text-[10px] text-slate-500 mt-1 uppercase font-bold">Tirs cadrés</div>
               </div>
