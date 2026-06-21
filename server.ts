@@ -40,7 +40,7 @@ if (FOOTBALL_DATA_TOKEN) {
 
 const MATCHES_CACHE_FILE = path.join(process.cwd(), "cache-wc-matches.json");
 const STANDINGS_CACHE_FILE = path.join(process.cwd(), "cache-wc-standings.json");
-const FOOTBALL_CACHE_TTL_MS = 60 * 1000; // 1 minute pour du temps réel
+const FOOTBALL_CACHE_TTL_MS = 60 * 1000; // 1 minute
 
 let apiRequestTimestamps: number[] = [];
 
@@ -1140,14 +1140,14 @@ Cette analyse est générée à des fins informatives et ne constitue pas un con
     const jsonText = JSON.stringify(matchData, null, 2);
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: `Voici les données structurées du match à venir : ${jsonText}`,
       config: {
         systemInstruction: "Tu es un analyste sportif expert en football international. Voici les données structurées du match à venir : [DONNÉES JSON]. Génère une analyse complète et structurée en français de 600-800 mots organisée en 4 parties claires :\n" +
           "1. Contexte et enjeux du match (2-3 phrases)\n" +
           "2. Forces et faiblesses de chaque équipe basées sur leur forme récente et leurs joueurs clés disponibles\n" +
           "3. Facteurs déterminants : impact de la météo, des blessures/absences, et de l'historique des confrontations\n" +
-          "4. Scénario probable du match avec un score le plus probable (fourchette, pas un chiffre exact) et la probabilité approximative de victoire de chaque équipe en pourcentage. Base-toi uniquement sur les statistiques fournies, n'invente pas de scores de manière fantaisiste.\n\n" +
+          "4. Scénario probable du match avec un score le plus probable (fourchette, pas un chiffre exact) et la probabilité approximative de victoire de chaque équipe en pourcentage. Base-toi DÉDUCTIVEMENT sur la réelle puissance, le classement FIFA et la réputation offensive de l'équipe (par exemple l'Espagne a souvent des scores impressionnants) pour éviter des prédictions génériques 1-1 ou 2-1 pour des équipes favorites.\n\n" +
           "Ton : expert mais accessible, jamais condescendant. Pas de jargon tactique excessif. Termine TOUJOURS par exactement la phrase suivante, sans aucun emoji ni texte additionnel après :\n" +
           "'Cette analyse est générée à des fins informatives et ne constitue pas un conseil de pari.'"
       }
@@ -1168,19 +1168,12 @@ Cette analyse est générée à des fins informatives et ne constitue pas un con
 app.get("/api/match-data/:matchId", async (req, res) => {
   try {
     const { matchId } = req.params;
-    const cacheKey = `match_detail_${matchId}`;
-    const now = Date.now();
-    
-    if (cacheMap[cacheKey] && (now - cacheMap[cacheKey].timestamp < CACHE_TTL_MS)) {
-      return res.json(cacheMap[cacheKey].data);
-    }
 
     const finalDetails = await getMatchDataMerged(matchId);
     if (!finalDetails) {
       return res.status(404).json({ error: "Match not found" });
     }
 
-    cacheMap[cacheKey] = { data: finalDetails, timestamp: now };
     return res.json(finalDetails);
   } catch (err) {
     console.error("Match detail fetch error:", err);
